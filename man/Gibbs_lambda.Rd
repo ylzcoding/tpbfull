@@ -4,20 +4,18 @@
 \alias{Gibbs_lambda}
 \title{draw posterior lambda}
 \usage{
-Gibbs_lambda(b, p, omega, sigmaSq, beta, nu)
+Gibbs_lambda(b, p, phi, beta, nu)
 }
 \arguments{
 \item{b}{hyper-parameter, real number}
 
 \item{p}{ncol(X)}
 
-\item{omega}{coefficient, real number}
-
 \item{beta}{p*1 coefficient vector}
 
 \item{nu}{p*1 coefficient vector}
 
-\item{sigmasq}{coefficient, real number}
+\item{omega}{coefficient, real number}
 }
 \value{
 posterior vector lambda

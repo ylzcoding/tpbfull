@@ -2,26 +2,41 @@
 % Please edit documentation in R/Gibbs_beta.R
 \name{Gibbs_beta}
 \alias{Gibbs_beta}
-\title{draw posterior beta}
+\title{draw posterior beta (a, b, phi parameterization)}
 \usage{
-Gibbs_beta(X, y, omega, sigmaSq, nu, lambda)
+Gibbs_beta(
+  X,
+  y,
+  a,
+  b,
+  phi,
+  sigmaSq,
+  nu,
+  lambda,
+  woodbury = FALSE,
+  diagX = FALSE
+)
 }
 \arguments{
 \item{X}{n*p design matrix}
 
 \item{y}{n*1 response vector}
 
-\item{omega}{coefficient, real number}
+\item{phi}{global shrinkage parameter (scalar)}
+
+\item{sigmaSq}{error variance (scalar)}
 
 \item{nu}{p*1 coefficient vector}
 
 \item{lambda}{p*1 coefficient vector}
 
-\item{sigmasq}{coefficient, real number}
+\item{woodbury}{binary logic variable, apply woodbury identity or not}
+
+\item{diagX}{binary logic variable, if TRUE assumes X is diagonal}
 }
 \value{
 posterior vector beta
 }
 \description{
-draw posterior beta
+draw posterior beta (a, b, phi parameterization)
 }
