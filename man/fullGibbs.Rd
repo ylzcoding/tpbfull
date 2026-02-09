@@ -9,9 +9,10 @@ fullGibbs(
   y,
   num_output = 10000,
   num_burnin = 10000,
+  thin = 1,
   woodbury = FALSE,
   diagX = FALSE,
-  hyper_params = list(s_a = 1, r_a = 1, s_b = 1, r_b = 1)
+  hyper_params = list(s_a = 2, r_a = 2, s_b = 2, r_b = 1)
 )
 }
 \arguments{

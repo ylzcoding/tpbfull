@@ -1,7 +1,7 @@
 library(tpbfull)
 library(MASS)
 library(rstan)
-# run devtools::install_github("ylzcoding/tpbfull", ref = "main", upgrade = "never") to install the package
+# devtools::install_github("ylzcoding/tpbfull", ref = "main", upgrade = "never")
 
 # optimize rstan settings
 rstan_options(auto_write = TRUE)
@@ -59,7 +59,7 @@ calculate_metrics <- function(beta_samples, beta_true) {
 
 
 
-rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_warmup, woodbury, seed){
+rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_warmup, thinning, woodbury, seed){
   # number of samples we'd like to collect
   # X should a design matrix
   # y should be a numeric vector
@@ -71,7 +71,7 @@ rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_
   # =========================================================================
   # RStan (Half-Cauchy Prior)
   # =========================================================================
-  cat("Running Stan (Half-Cauchy Priors)...\n")
+  cat("Running Stan (Gamma Priors)...\n")
 
   stan_data <- list(
     N = nrow(X),
@@ -80,7 +80,7 @@ rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_
     y = as.vector(y)
   )
 
-  fit_hc <- stan(
+  fit_stan <- stan(
     file = stan_file_path,
     data = stan_data,
     chains = num_chains,
@@ -93,25 +93,28 @@ rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_
   )
 
   # Extract samples
-  extracted <- rstan::extract(fit_hc)
-  beta_samples_hc <- extracted$beta
-  hc_metrics <- calculate_metrics(beta_samples_hc, beta_true)
+  extracted <- rstan::extract(fit_stan)
+  beta_samples_stan <- extracted$beta
+  stan_metrics <- calculate_metrics(beta_samples_stan, beta_true)
 
-  hyper_pars_hc <- data.frame(
+  hyper_pars_stan <- data.frame(
     a = extracted$a,
     b = extracted$b,
     phi = extracted$phi,
     sigmaSq = extracted$sigmaSq
   )
 
-  fit_summary_hc <- rstan::summary(fit_hc, pars = c("a", "b", "phi", "sigmaSq"), probs = c())$summary
-  hc_results <- list(
-    metrics = hc_metrics,
-    hyper_means = colMeans(hyper_pars_hc),
+  fit_summary_stan <- rstan::summary(fit_stan, pars = c("a", "b", "phi", "sigmaSq"), probs = c())$summary
+  stan_results <- list(
+    a_samples = as.vector(hyper_pars_stan[,"a"]),
+    b_samples = as.vector(hyper_pars_stan[,"b"]),
+    phi_samples = as.vector(hyper_pars_stan[,"phi"]),
+    metrics = stan_metrics,
+    hyper_means = colMeans(hyper_pars_stan),
     convergence = list(
-      max_rhat = max(fit_summary_hc[, "Rhat"], na.rm = TRUE),
-      min_ess  = min(fit_summary_hc[, "n_eff"], na.rm = TRUE),
-      divergences = rstan::get_num_divergent(fit_hc)
+      max_rhat = max(fit_summary_stan[, "Rhat"], na.rm = TRUE),
+      min_ess  = min(fit_summary_stan[, "n_eff"], na.rm = TRUE),
+      divergences = rstan::get_num_divergent(fit_stan)
     )
   )
 
@@ -129,11 +132,12 @@ rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_
       X = X, y = y,
       num_output = num_output,
       num_burnin = num_burnin,
+      thin = thinning,
       woodbury = woodbury,
-      hyper_params = list(s_a=1, r_a=2, s_b=1, r_b=2)
-      )
-      gibbs_chains_scalars[[i]] <- chain_res$samples$scalars
-      gibbs_chains_beta[[i]]    <- chain_res$samples$beta
+      hyper_params = list(s_a=2, r_a=2, s_b=2, r_b=1)
+    )
+    gibbs_chains_scalars[[i]] <- chain_res$samples$scalars
+    gibbs_chains_beta[[i]]    <- chain_res$samples$beta
   }
 
   # R-hat
@@ -154,6 +158,9 @@ rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_
   gibbs_hyper_means <- colMeans(gibbs_scalar_combined)
 
   gibbs_results <- list(
+    a_samples = as.vector(gibbs_scalar_combined[,"a"]),
+    b_samples = as.vector(gibbs_scalar_combined[,"b"]),
+    phi_samples = as.vector(gibbs_scalar_combined[,"phi"]),
     metrics = gibbs_metrics,
     hyper_means = gibbs_hyper_means,
     convergence = list(
@@ -166,13 +173,12 @@ rep_func <- function(X, y, beta_true, stan_file_path, num_chains, num_iter, num_
 
   return(list(
     gamma_gibbs = gibbs_results,
-    hc_stan     = hc_results
+    gamma_stan = stan_results
   ))
 }
 
-# function to generate the simulation settings
 sparse_data_gen <- function(n, p, num_nonzeros, seed,
-                            signal_type = "student_t", # student_t of uniform
+                            signal_type = "uniform", # student_t of uniform
                             signal_params = list(df = 3, scale = 1),
                             target_snr = 4,
                             correlation = 0.9) {
@@ -216,15 +222,16 @@ sparse_data_gen <- function(n, p, num_nonzeros, seed,
 
 ######### SLURM settings ###########
 
-dir <- "/home/yilinzhu_umass_edu/TPB_full/gamma_hc_p200"
+dir <- "my_dir"
 task_id <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
-cat("Running seed ", task_id, "\n")
-
+#cat("Running seed ", task_id, "\n")
 n <- 50
 p <- 200
 num_nonzeros <- 4 # 4, 16, 30, or 60
 unif_low <- -5 # -1 & -5
 unif_up <- 5 # 1 & 5
+df <- 3
+scale <- 1
 corr <- 0.9 # low 0.5 & super 0.9
 target_snr <- 4
 
@@ -245,11 +252,6 @@ y <- data_gen$y
 beta_true <- data_gen$beta
 
 sim_res <- rep_func(X = X, y = y, beta_true = beta_true,
-                    stan_file_path = "tpb_model.stan",
-                    num_chains = 4, num_iter = 5000, num_warmup = 2500,
+                    stan_file_path = "tpb_with_gamma.stan",
+                    num_chains = 5, num_iter = 2000, num_warmup = 1000, thinning = 1,
                     woodbury = TRUE, seed = task_id)
-# save results
-file_name <- paste(dir, "/Out/Correlated_n_", n, "_p_", p, "_nonzero_",
-                   num_nonzeros, "_", unif_low, "_", unif_up, "_", task_id, ".RData", sep = "")
-
-save(sim_res, data_gen, file = file_name)
