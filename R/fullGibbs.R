@@ -8,12 +8,15 @@
 #' @param num_burnin Integer, number of burn-in iterations to discard
 #' @param woodbury Logical, use Woodbury identity in beta update
 #' @param diagX Logical, assume diagonal X
-#' @param hyper_params List of hyperparameters (s_a, r_a, s_b, r_b, sigma_a, sigma_b)
+#' @param hyper_prior string, "gamma" or "hcauchy"
+#' @param method string, "miller" or "mh" (only applicabl. e if prior_option="gamma")
+#' @param hyper_params List of hyperparameters (s_a, r_a, s_b, r_b, scale_a, scale_b)
+#' @param mh_step scalar, step size for MH uniform proposal
 #' @return A list containing posterior samples matrices and a diagnostics summary table.
 #' @export
 fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
-                      woodbury = FALSE, diagX = FALSE,
-                      hyper_params = list(s_a=2, r_a=2, s_b=2, r_b=1)) {
+                      woodbury = TRUE, diagX = FALSE, hyper_prior = "gamma", method = "mh", mh_step = 0.05,
+                      hyper_params = list(s_a=1.5, r_a=1, s_b=1.5, r_b=1, scale_a = 1, scale_b = 1)) {
 
   n <- nrow(X)
   p <- ncol(X)
@@ -42,6 +45,9 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
 
   cat("Starting Gibbs Sampler...\n")
 
+  accept_count_a <- 0
+  accept_count_b <- 0
+
   for (iter in 1:total_iter) {
     beta <- Gibbs_beta(X = X, y = y, a = a, b = b,
                        phi = phi, sigmaSq = sigmaSq, nu = nu, lambda = lambda,
@@ -53,8 +59,21 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     phi <- Gibbs_phi(p, nu, lambda, w, beta)
     #xi <- Gibbs_xi(a, p, nu)
     nu <- Gibbs_nu(phi, beta, lambda, a)
-    a <- Gibbs_a(nu = nu, a = a, s_a = hyper_params$s_a, r_a = hyper_params$r_a)
-    b <- Gibbs_b(lambda = lambda, b = b, s_b = hyper_params$s_b, r_b = hyper_params$r_b)
+    a_new <- Gibbs_a(nu = nu, a = a, prior = hyper_prior,
+                 s_a = hyper_params$s_a, r_a = hyper_params$r_a, scale_a = hyper_params$scale_a,
+                 method = method, mh_step = mh_step)
+    if (a_new != a) {
+      accept_count_a <- accept_count_a + 1
+    }
+    a <- a_new
+
+    b_new <- Gibbs_b(lambda = lambda, b = b, prior = hyper_prior,
+                 s_b = hyper_params$s_b, r_b = hyper_params$r_b, scale_b = hyper_params$scale_b,
+                 method = method, mh_step = mh_step)
+    if (b_new != b) {
+      accept_count_b <- accept_count_b + 1
+    }
+    b <- b_new
 
     if (iter > num_burnin) {
       if ((iter - num_burnin) %% thin == 0) {
@@ -69,17 +88,26 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     # if (iter %% 100 == 0) setTxtProgressBar(pb, iter)
   }
 
+  accept_a <- accept_count_a / total_iter
+  accept_b <- accept_count_b / total_iter
   # close(pb)
 
   ### Diagnostics & Summary
 
-  # Combine scalars for easier handling
   scalar_names <- colnames(store_scalars)
-
-  return(list(
+  result <- list(
     samples = list(
       beta = store_beta,
       scalars = store_scalars
     )
-  ))
+  )
+
+  if (method == "mh") {
+    result$acceptance_rates <- list(
+      a = accept_a,
+      b = accept_b
+    )
+  }
+
+  return(result)
 }

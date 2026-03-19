@@ -17,14 +17,14 @@ parameters {
 transformed parameters {
   vector[p] beta;
   vector[p] local_scale;
-  local_scale = sqrt(sigmaSq * phi * nu ./ lambda);
+  local_scale = sqrt(phi * nu ./ lambda);
   beta = z .* local_scale;
 }
 
 model {
   sigmaSq ~ inv_gamma(1.5, 0.5);
-  a ~ gamma(2, 2);
-  b ~ gamma(2, 1);
+  a ~ gamma(1.5, 1);
+  b ~ gamma(1.5, 1);
   phi ~ cauchy(0, 1);
 
   nu ~ gamma(a, 1);
