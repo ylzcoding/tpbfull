@@ -30,15 +30,17 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   n_save <- floor(num_output / thin)
 
   # Initialize Parameters (Starting Values)
-  sigmaSq <- var(y)
-  beta    <- t(mvtnorm::rmvnorm(1, sigma = sigmaSq * diag(p)))
-  a       <- 0.5
-  b       <- 0.5
-  phi     <- 1
+  sigmaSq <- 1 / rgamma(1, shape = 1.5, rate = 0.5) # var(y)
+  a       <- rgamma(1, shape = 1.5, rate = 1) # 0.5
+  b       <- rgamma(1, shape = 1.5, rate = 1) # 0.5
+  phi     <- abs(rcauchy(1, location = 0, scale = hyper_params$scale_phi))
+  phi     <- pmin(pmax(phi, 1e-4), 1e4) # 1
+  nu      <- rgamma(p, shape = a, rate = 1) # 1
+  lambda  <- rgamma(p, shape = b, rate = 1) # 1
+  beta    <- rnorm(p, mean = 0, sd = sqrt(phi * (nu / lambda)))
+
   # w       <- 1
-  nu      <- 1
-  lambda <- 1
-  xi      <- rep(1, p)
+  # xi      <- rep(1, p)
 
   # Storage matrices (only for saved samples)
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
