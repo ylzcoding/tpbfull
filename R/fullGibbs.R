@@ -12,8 +12,8 @@
 #' @param mh_step_a, mh_step_b, mh_step_phi step size for each hyper-parameter under the 'separate' mode
 #' @param adapt_block_size Integer, number of iterations per adaptation block
 #' @param r_opt Numeric, target acceptance rate for adaptive MH (default 0.3)
-#' @param cov_matrix Matrix, 2x2 covariance matrix for joint_fixed proposals
-#' @param hyper_params List of hyperparameters (s_a, r_a, s_b, r_b, scale_a, scale_b)
+#' @param cov_matrix Matrix, 2x2 covariance matrix for bi_fixed proposals
+#' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)
 #' @param mh_step scalar, step size for MH uniform proposal
 #' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
 #' @export
@@ -22,17 +22,37 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       mh_step_a = 0.1, mh_step_b = 0.1, mh_step_phi = 0.1,
                       adapt_block_size = 100, r_opt = 0.3,
                       cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
-                      hyper_params = list(s_a=1.5, r_a=1, s_b=1.5, r_b=1, scale_phi = 1)) {
+                      hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
+                                          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
+                                          scale_a = 1, scale_b = 1, scale_phi = 1)) {
 
   n <- nrow(X)
   p <- ncol(X)
   total_iter <- num_output + num_burnin
   n_save <- floor(num_output / thin)
+  hyper_params <- modifyList(
+    list(prior_type_a = "gamma", prior_type_b = "gamma",
+         s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
+         scale_a = 1, scale_b = 1, scale_phi = 1),
+    hyper_params
+  )
+  hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))
+  hyper_params$prior_type_b <- match.arg(hyper_params$prior_type_b, c("gamma", "hcauchy"))
 
   # Initialize Parameters (Starting Values)
   sigmaSq <- 1 / rgamma(1, shape = 1.5, rate = 0.5) # var(y)
-  a       <- rgamma(1, shape = 1.5, rate = 1) # 0.5
-  b       <- rgamma(1, shape = 1.5, rate = 1) # 0.5
+  a       <- if (hyper_params$prior_type_a == "gamma") {
+    rgamma(1, shape = hyper_params$s_a, rate = hyper_params$r_a)
+  } else {
+    abs(rcauchy(1, location = 0, scale = hyper_params$scale_a))
+  }
+  b       <- if (hyper_params$prior_type_b == "gamma") {
+    rgamma(1, shape = hyper_params$s_b, rate = hyper_params$r_b)
+  } else {
+    abs(rcauchy(1, location = 0, scale = hyper_params$scale_b))
+  }
+  a       <- pmin(pmax(a, 1e-4), 1e4)
+  b       <- pmin(pmax(b, 1e-4), 1e4)
   phi     <- abs(rcauchy(1, location = 0, scale = hyper_params$scale_phi))
   phi     <- pmin(pmax(phi, 1e-4), 1e4) # 1
   nu      <- rgamma(p, shape = a, rate = 1) # 1
@@ -44,9 +64,11 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
 
   # Storage matrices (only for saved samples)
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
+  store_beta_loglik <- numeric(n_save)
   store_scalars <- matrix(0, nrow = n_save, ncol = 4) # sigmaSq, phi, a, b; if use w then set it to 5
   colnames(store_scalars) <- c("sigmaSq", "phi", "a", "b")
   idx <- 0
+  beta_loglik <- NA_real_
 
   # Progress bar
   #pb <- txtProgressBar(min = 0, max = total_iter, style = 3)
@@ -98,37 +120,61 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    current_a = a, current_b = b, current_phi = phi,
                                    s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                    s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi, mh_step = mh_step_a)
-      if (a_new != a) {accept_count_a <- accept_count_a + 1}
-      a <- a_new
+                                   scale_phi = hyper_params$scale_phi,
+                                   prior_type_a = hyper_params$prior_type_a,
+                                   prior_type_b = hyper_params$prior_type_b,
+                                   scale_a = hyper_params$scale_a,
+                                   scale_b = hyper_params$scale_b,
+                                   mh_step = mh_step_a)
+      if (a_new$accepted) {accept_count_a <- accept_count_a + 1}
+      a <- a_new$value
+      beta_loglik <- a_new$log_lik
 
       b_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "b",
                                    current_a = a, current_b = b, current_phi = phi,
                                    s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                    s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi, mh_step = mh_step_b)
-      if (b_new != b) {accept_count_b <- accept_count_b + 1}
-      b <- b_new
+                                   scale_phi = hyper_params$scale_phi,
+                                   prior_type_a = hyper_params$prior_type_a,
+                                   prior_type_b = hyper_params$prior_type_b,
+                                   scale_a = hyper_params$scale_a,
+                                   scale_b = hyper_params$scale_b,
+                                   mh_step = mh_step_b)
+      if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
+      b <- b_new$value
+      beta_loglik <- b_new$log_lik
 
       phi_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "phi",
                                      current_a = a, current_b = b, current_phi = phi,
                                      s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                      s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                     scale_phi = hyper_params$scale_phi, mh_step = mh_step_phi)
-      if (phi_new != phi) {accept_count_phi <- accept_count_phi + 1}
-      phi <- phi_new
+                                     scale_phi = hyper_params$scale_phi,
+                                     prior_type_a = hyper_params$prior_type_a,
+                                     prior_type_b = hyper_params$prior_type_b,
+                                     scale_a = hyper_params$scale_a,
+                                     scale_b = hyper_params$scale_b,
+                                     mh_step = mh_step_phi)
+      if (phi_new$accepted) {accept_count_phi <- accept_count_phi + 1}
+      phi <- phi_new$value
+      beta_loglik <- phi_new$log_lik
     } else if (proposal_type %in% c("bi_fixed", "bi_adaptive")) {
-      prop_cov <- if(proposal_type == "joint_fixed") cov_matrix else current_proposal_cov
+      prop_cov <- if(proposal_type == "bi_fixed") cov_matrix else current_proposal_cov
       a_phi_new <- run_marginal_mh_bi_a_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
                                             s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                             s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                            scale_phi = hyper_params$scale_phi, cov_matrix = prop_cov)
+                                            scale_phi = hyper_params$scale_phi,
+                                            prior_type_a = hyper_params$prior_type_a,
+                                            prior_type_b = hyper_params$prior_type_b,
+                                            scale_a = hyper_params$scale_a,
+                                            scale_b = hyper_params$scale_b,
+                                            cov_matrix = prop_cov)
       if (a_phi_new$accepted) {
         accept_count_a <- accept_count_a + 1
         accept_count_phi <- accept_count_phi + 1
       }
       a   <- a_phi_new$a
       phi <- a_phi_new$phi
+      beta_loglik <- a_phi_new$log_lik
 
       if (proposal_type == "bi_adaptive" && iter <= num_burnin) {
         block_samples[block_idx, ] <- c(log(a), log(phi))
@@ -153,14 +199,25 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    current_a = a, current_b = b, current_phi = phi,
                                    s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                    s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi, mh_step = mh_step_b)
-      if (b_new != b) {accept_count_b <- accept_count_b + 1}
-      b <- b_new
+                                   scale_phi = hyper_params$scale_phi,
+                                   prior_type_a = hyper_params$prior_type_a,
+                                   prior_type_b = hyper_params$prior_type_b,
+                                   scale_a = hyper_params$scale_a,
+                                   scale_b = hyper_params$scale_b,
+                                   mh_step = mh_step_b)
+      if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
+      b <- b_new$value
+      beta_loglik <- b_new$log_lik
     } else if (proposal_type == "all_adaptive") {
       a_b_phi_new <- run_marginal_mh_tri_a_b_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
                                                  s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                                  s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                                 scale_phi = hyper_params$scale_phi, cov_matrix = current_proposal_cov)
+                                                 scale_phi = hyper_params$scale_phi,
+                                                 prior_type_a = hyper_params$prior_type_a,
+                                                 prior_type_b = hyper_params$prior_type_b,
+                                                 scale_a = hyper_params$scale_a,
+                                                 scale_b = hyper_params$scale_b,
+                                                 cov_matrix = current_proposal_cov)
       if (a_b_phi_new$accepted) {
         accept_count_a <- accept_count_a + 1
         accept_count_b <- accept_count_b + 1
@@ -169,6 +226,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       a   <- a_b_phi_new$a
       b   <- a_b_phi_new$b
       phi <- a_b_phi_new$phi
+      beta_loglik <- a_b_phi_new$log_lik
 
       if (iter <= num_burnin) {
         block_samples[block_idx, ] <- c(log(a), log(b), log(phi))
@@ -196,6 +254,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
         idx <- idx + 1
         if (idx <= n_save) {
           store_beta[idx, ] <- beta
+          store_beta_loglik[idx] <- beta_loglik
           store_scalars[idx, ] <- c(sigmaSq, phi, a, b)
         }
       }
@@ -215,13 +274,15 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   result <- list(
     samples = list(
       beta = store_beta,
+      beta_loglik = store_beta_loglik,
       scalars = store_scalars
     ),
     acceptance_rates = list(
       a = accept_a,
       b = accept_b,
       phi = accept_phi
-    )
+    ),
+    hyper_params = hyper_params
   )
   if (proposal_type %in% c("bi_adaptive", "all_adaptive")) {
     result$final_proposal_cov <- current_proposal_cov
