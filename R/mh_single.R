@@ -32,9 +32,9 @@ run_marginal_mh_uni <- function(beta_vec, target_param,
   log_r <- new_eval$log_posterior - old_eval$log_posterior + log(new_val) - log(current_val)
 
   if (!is.na(log_r) && log(runif(1)) < log_r) {
-    return(list(value = new_val, log_lik = new_eval$log_lik, accepted = TRUE))
+    return(list(value = new_val, log_lik = new_eval$log_lik, total_logpost = new_eval$log_posterior, accepted = TRUE))
   } else {
-    return(list(value = current_val, log_lik = old_eval$log_lik, accepted = FALSE))
+    return(list(value = current_val, log_lik = old_eval$log_lik, total_logpost = old_eval$log_posterior, accepted = FALSE))
   }
 }
 
@@ -64,9 +64,9 @@ run_marginal_mh_bi_a_phi <- function(beta_vec, current_a, current_b, current_phi
   log_r <- new_eval$log_posterior - old_eval$log_posterior + (log_new[1] - log_cur[1]) + (log_new[2] - log_cur[2])
 
   if (!is.na(log_r) && log(runif(1)) < log_r) {
-    return(list(a = a_new, phi = phi_new, accepted = TRUE, log_lik = new_eval$log_lik))
+    return(list(a = a_new, phi = phi_new, accepted = TRUE, log_lik = new_eval$log_lik, total_logpost = new_eval$log_posterior))
   } else {
-    return(list(a = current_a, phi = current_phi, accepted = FALSE, log_lik = old_eval$log_lik))
+    return(list(a = current_a, phi = current_phi, accepted = FALSE, log_lik = old_eval$log_lik, total_logpost = old_eval$log_posterior))
   }
 }
 
@@ -95,10 +95,9 @@ run_marginal_mh_tri_a_b_phi <- function(beta_vec, current_a, current_b, current_
   log_r <- new_eval$log_posterior - old_eval$log_posterior + (log_new[1] - log_cur[1]) + (log_new[2] - log_cur[2]) + (log_new[3] - log_cur[3])
 
   if (!is.na(log_r) && log(runif(1)) < log_r) {
-    return(list(a = a_new, b = b_new, phi = phi_new, accepted = TRUE, log_lik = new_eval$log_lik))
+    return(list(a = a_new, b = b_new, phi = phi_new, accepted = TRUE, log_lik = new_eval$log_lik, total_logpost = new_eval$log_posterior))
   } else {
-    return(list(a = current_a, b = current_b, phi = current_phi, accepted = FALSE, log_lik = old_eval$log_lik))
+    return(list(a = current_a, b = current_b, phi = current_phi, accepted = FALSE, log_lik = old_eval$log_lik, total_logpost = old_eval$log_posterior))
   }
 }
-
 

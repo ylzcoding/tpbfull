@@ -65,10 +65,12 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   # Storage matrices (only for saved samples)
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
   store_beta_loglik <- numeric(n_save)
+  store_total_logpost <- numeric(n_save)
   store_scalars <- matrix(0, nrow = n_save, ncol = 4) # sigmaSq, phi, a, b; if use w then set it to 5
   colnames(store_scalars) <- c("sigmaSq", "phi", "a", "b")
   idx <- 0
   beta_loglik <- NA_real_
+  total_logpost <- NA_real_
 
   # Progress bar
   #pb <- txtProgressBar(min = 0, max = total_iter, style = 3)
@@ -129,6 +131,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       if (a_new$accepted) {accept_count_a <- accept_count_a + 1}
       a <- a_new$value
       beta_loglik <- a_new$log_lik
+      total_logpost <- a_new$total_logpost
 
       b_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "b",
                                    current_a = a, current_b = b, current_phi = phi,
@@ -143,6 +146,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
       b <- b_new$value
       beta_loglik <- b_new$log_lik
+      total_logpost <- b_new$total_logpost
 
       phi_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "phi",
                                      current_a = a, current_b = b, current_phi = phi,
@@ -157,6 +161,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       if (phi_new$accepted) {accept_count_phi <- accept_count_phi + 1}
       phi <- phi_new$value
       beta_loglik <- phi_new$log_lik
+      total_logpost <- phi_new$total_logpost
     } else if (proposal_type %in% c("bi_fixed", "bi_adaptive")) {
       prop_cov <- if(proposal_type == "bi_fixed") cov_matrix else current_proposal_cov
       a_phi_new <- run_marginal_mh_bi_a_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
@@ -175,6 +180,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       a   <- a_phi_new$a
       phi <- a_phi_new$phi
       beta_loglik <- a_phi_new$log_lik
+      total_logpost <- a_phi_new$total_logpost
 
       if (proposal_type == "bi_adaptive" && iter <= num_burnin) {
         block_samples[block_idx, ] <- c(log(a), log(phi))
@@ -208,6 +214,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
       b <- b_new$value
       beta_loglik <- b_new$log_lik
+      total_logpost <- b_new$total_logpost
     } else if (proposal_type == "all_adaptive") {
       a_b_phi_new <- run_marginal_mh_tri_a_b_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
                                                  s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
@@ -227,6 +234,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       b   <- a_b_phi_new$b
       phi <- a_b_phi_new$phi
       beta_loglik <- a_b_phi_new$log_lik
+      total_logpost <- a_b_phi_new$total_logpost
 
       if (iter <= num_burnin) {
         block_samples[block_idx, ] <- c(log(a), log(b), log(phi))
@@ -255,6 +263,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
         if (idx <= n_save) {
           store_beta[idx, ] <- beta
           store_beta_loglik[idx] <- beta_loglik
+          store_total_logpost[idx] <- total_logpost
           store_scalars[idx, ] <- c(sigmaSq, phi, a, b)
         }
       }
@@ -275,6 +284,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     samples = list(
       beta = store_beta,
       beta_loglik = store_beta_loglik,
+      total_logpost = store_total_logpost,
       scalars = store_scalars
     ),
     acceptance_rates = list(
