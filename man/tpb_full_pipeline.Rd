@@ -12,7 +12,7 @@ tpb_full_pipeline(
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
     s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1),
   num_iter = 1e+05,
-  num_warmup = 250000,
+  num_warmup = 25000,
   thinning = 1,
   iter_pre_opt = 100,
   pre_opt_burnin = 1000,
@@ -33,9 +33,9 @@ tpb_full_pipeline(
 
 \item{hyper_params}{List of hyperparameters for the fully Bayesian sampler}
 
-\item{num_iter}{Integer, total number of MCMC iterations per chain}
+\item{num_iter}{Integer, total number of MCMC iterations across all chains}
 
-\item{num_warmup}{Integer, number of warm-up iterations per chain}
+\item{num_warmup}{Integer, total number of warm-up iterations across all chains}
 
 \item{thinning}{Integer, thinning interval for saved posterior samples}
 

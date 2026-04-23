@@ -5,8 +5,8 @@
 #' @param num_chains Integer, number of independent MCMC chains to run
 #' @param auto_find Logical, run empirical Bayes model competition once before MCMC
 #' @param hyper_params List of hyperparameters for the fully Bayesian sampler
-#' @param num_iter Integer, total number of MCMC iterations per chain
-#' @param num_warmup Integer, number of warm-up iterations per chain
+#' @param num_iter Integer, total number of MCMC iterations across all chains
+#' @param num_warmup Integer, total number of warm-up iterations across all chains
 #' @param thinning Integer, thinning interval for saved posterior samples
 #' @param iter_pre_opt Iterations for the model competition pre-optimization EM stage for each candidate
 #' @param pre_opt_burnin Burn-in for each model competition pre-optimization EM step
@@ -28,7 +28,7 @@ tpb_full_pipeline <- function(X, y,
                                                   scale_b = 1,
                                                   scale_phi = 1),
                               num_iter = 100000,
-                              num_warmup = 250000,
+                              num_warmup = 25000,
                               thinning = 1,
                               iter_pre_opt = 100,
                               pre_opt_burnin = 1000,
@@ -37,11 +37,15 @@ tpb_full_pipeline <- function(X, y,
                               woodbury = TRUE,
                               ...) {
 
-  num_chains <- as.integer(num_chains)
-  num_iter <- as.integer(num_iter)
-  num_warmup <- as.integer(num_warmup)
-  thinning <- as.integer(thinning)
-  num_output <- num_iter - num_warmup
+
+  num_posterior <- num_iter - num_warmup
+  warmup_per_chain <- num_warmup %/% num_chains
+  posterior_per_chain <- num_posterior %/% num_chains
+  iter_per_chain <- warmup_per_chain + posterior_per_chain
+
+  if (posterior_per_chain < 1L) {
+    stop("num_iter - num_warmup must be at least num_chains so each chain saves at least one posterior draw.")
+  }
 
   final_hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
@@ -93,8 +97,8 @@ tpb_full_pipeline <- function(X, y,
     chain_res <- fullGibbs(
       X = X,
       y = y,
-      num_output = num_output,
-      num_burnin = num_warmup,
+      num_output = posterior_per_chain * thinning,
+      num_burnin = warmup_per_chain * thinning,
       thin = thinning,
       woodbury = woodbury,
       hyper_params = final_hyper_params,
@@ -166,6 +170,16 @@ tpb_full_pipeline <- function(X, y,
       mean_scale = avg_scale
     ),
     diagnostics = diagnostics,
+    mcmc_schedule = list(
+      num_chains = num_chains,
+      num_iter_total = num_iter,
+      num_warmup_total = num_warmup,
+      num_posterior_total = num_posterior,
+      thinning = thinning,
+      iter_per_chain = iter_per_chain,
+      warmup_per_chain = warmup_per_chain,
+      posterior_per_chain = posterior_per_chain
+    ),
     hyper_params = final_hyper_params,
     auto_find = list(
       enabled = isTRUE(auto_find),
