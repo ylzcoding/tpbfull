@@ -6,6 +6,7 @@
 #' @param y n*1 response vector
 #' @param num_output Integer, number of posterior samples to save (after burn-in)
 #' @param num_burnin Integer, number of burn-in iterations to discard
+#' @param thin Integer, thinning interval for saved posterior samples
 #' @param woodbury Logical, use Woodbury identity in beta update
 #' @param diagX Logical, assume diagonal X
 #' @param proposal_type String, "separate" or "bi_fixed" or "bi_adaptive" or "all_adaptive"

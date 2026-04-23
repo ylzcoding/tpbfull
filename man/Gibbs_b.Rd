@@ -4,16 +4,33 @@
 \alias{Gibbs_b}
 \title{Sample posterior for hyperparameter 'b'}
 \usage{
-Gibbs_b(lambda, b, s_b = 1, r_b = 1)
+Gibbs_b(
+  lambda,
+  b,
+  prior = "gamma",
+  s_b = 1.5,
+  r_b = 1,
+  scale_b = 1,
+  method = "mh",
+  mh_step = 0.05
+)
 }
 \arguments{
 \item{lambda}{p*1 vector of local shrinkage parameters}
 
-\item{b_current}{scalar, current value of 'b'}
+\item{b}{scalar, current value of 'b'}
 
-\item{s_b_prior}{scalar, shape parameter for prior on 'b' (renamed to avoid conflict with local b)}
+\item{prior}{string, "gamma" or "hcauchy"}
 
-\item{r_b_prior}{scalar, rate parameter for prior on 'b'}
+\item{s_b}{scalar, shape parameter for Gamma prior}
+
+\item{r_b}{scalar, rate parameter for Gamma prior}
+
+\item{scale_b}{scalar, scale parameter for Half-Cauchy prior}
+
+\item{method}{string, "miller" or "mh" (only applicable if prior_option="gamma")}
+
+\item{mh_step}{scalar, step size for MH uniform proposal}
 }
 \value{
 scalar b_new
