@@ -83,7 +83,6 @@ tpb_full_pipeline <- function(X, y,
     )
   }
 
-  chain_results <- vector("list", num_chains)
   chains_beta <- vector("list", num_chains)
   chains_scalars <- vector("list", num_chains)
   chains_loglik <- vector("list", num_chains)
@@ -105,7 +104,6 @@ tpb_full_pipeline <- function(X, y,
       ...
     )
 
-    chain_results[[i]] <- chain_res
     chains_beta[[i]] <- chain_res$samples$beta
     chains_scalars[[i]] <- chain_res$samples$scalars
     chains_loglik[[i]] <- chain_res$samples$beta_loglik
@@ -113,9 +111,16 @@ tpb_full_pipeline <- function(X, y,
     chains_accept[[i]] <- unlist(chain_res$acceptance_rates[c("a", "b", "phi")])
     chains_cov[[i]] <- chain_res$final_proposal_cov
     chains_scale[[i]] <- chain_res$final_scale_factor
+
+    rm(chain_res)
   }
 
   combined_beta <- do.call(rbind, chains_beta)
+  beta_hat <- colMeans(combined_beta)
+  beta_sd  <- apply(combined_beta, 2, sd)
+  beta_ci  <- apply(combined_beta, 2, quantile, probs = c(0.025, 0.975))
+  rm(chains_beta, combined_beta)
+
   combined_scalars <- do.call(rbind, chains_scalars)
   combined_loglik <- unlist(chains_loglik, use.names = FALSE)
   combined_logpost <- unlist(chains_logpost, use.names = FALSE)
@@ -139,20 +144,15 @@ tpb_full_pipeline <- function(X, y,
 
   list(
     samples = list(
-      beta = combined_beta,
+      beta_summary = list(
+        mean  = beta_hat,
+        sd    = beta_sd,
+        lower = beta_ci[1, ],
+        upper = beta_ci[2, ]
+      ),
       scalars = combined_scalars,
       beta_loglik = combined_loglik,
       total_logpost = combined_logpost
-    ),
-    chains = list(
-      results = chain_results,
-      beta = chains_beta,
-      scalars = chains_scalars,
-      beta_loglik = chains_loglik,
-      total_logpost = chains_logpost,
-      acceptance_rates = chains_accept,
-      final_proposal_cov = chains_cov,
-      final_scale_factor = chains_scale
     ),
     scalar_traces = list(
       a_samples = as.vector(combined_scalars[, "a"]),
@@ -164,8 +164,6 @@ tpb_full_pipeline <- function(X, y,
       mean = avg_acceptance
     ),
     adaptive_tuning = list(
-      per_chain_cov = chains_cov,
-      per_chain_scale = chains_scale,
       mean_cov = avg_cov,
       mean_scale = avg_scale
     ),
@@ -183,8 +181,9 @@ tpb_full_pipeline <- function(X, y,
     hyper_params = final_hyper_params,
     auto_find = list(
       enabled = isTRUE(auto_find),
-      competition_result = competition_result,
-      winning_modes = winning_modes
+      winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
+      winning_modes = winning_modes,
+      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities
     )
   )
 }
