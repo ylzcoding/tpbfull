@@ -25,8 +25,7 @@ run_model_competition <- function(X, y,
     initial_values <- eb_initial_values(
       X = X,
       y = y,
-      option = init_option,
-      sigmaSq_hat = sigmaSq_init_guess
+      option = init_option
     )
     if (is.null(omega_init_guess)) {
       omega_init_guess <- initial_values$omega
@@ -68,7 +67,6 @@ run_model_competition <- function(X, y,
 #' @param woodbury Logical, use Woodbury identity in beta updates.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
-#' @param converge_rule Convergence rule, currently "hyper" or "rho".
 #' @param approx Logical placeholder kept for API compatibility.
 #' @param option "augmented" or "naive" nu update.
 #' @param diagX Logical, assume diagonal X.
@@ -85,12 +83,12 @@ initialize_adaptive <- function(X, y,
                                 candidates = list(
                                   horseshoe = list(a = 0.5, b = 0.5),
                                   normal_gamma = list(a = 0.5, b = 10.0),
-                                  studentt = list(a = 10.0, b = 1.0)
+                                  studentt = list(a = 10.0, b = 0.5)
                                 ),
                                 woodbury = TRUE,
                                 delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
-                                window_size = 5, converge_rule = "hyper",
-                                approx = FALSE, option = "augmented", diagX = FALSE) {
+                                window_size = 5, approx = FALSE, 
+                                option = "augmented", diagX = FALSE) {
   cat("Stage 1: Pre-optimizing each candidate model...\n")
 
   pre_optimized_params <- list()
@@ -101,8 +99,8 @@ initialize_adaptive <- function(X, y,
     iter_burnin = pre_opt_burnin,
     iter_samples = pre_opt_samples,
     delta1 = delta1, delta2 = delta2, delta3 = delta3,
-    window_size = window_size, converge_rule = converge_rule,
-    woodbury = woodbury, approx = approx, option = option, diagX = diagX
+    window_size = window_size, woodbury = woodbury, 
+    approx = approx, option = option, diagX = diagX
   )
 
   for (name in names(candidates)) {
@@ -164,8 +162,13 @@ initialize_adaptive <- function(X, y,
       )
     })
 
-    weights <- exp(log_weights - max(log_weights, na.rm = TRUE))
-    probs <- weights / sum(weights, na.rm = TRUE)
+    max_log <- max(log_weights, na.rm = TRUE)
+    if (!is.finite(max_log)) {
+      probs <- rep(1 / length(model_names), length(model_names))
+    } else {
+      weights <- exp(log_weights - max_log)
+      probs <- weights / sum(weights, na.rm = TRUE)
+    }
     current_model_name <- sample(model_names, 1, prob = probs)
     sample_row_idx <- sample(1:iter_selection, 1)
     current_beta <- presampled_betas[[current_model_name]][sample_row_idx, ]
@@ -188,100 +191,41 @@ initialize_adaptive <- function(X, y,
   )
 }
 
-eb_initial_values <- function(X, y, option = c("ridge", "olasso"),
-                              sigmaSq_hat = NULL, epsilon = 1e-6) {
-  option <- match.arg(option)
-  if (is.null(sigmaSq_hat)) {
-    sigmaSq_hat <- eb_estimate_sigmaSq(X, y, option = option, epsilon = epsilon)
-  }
-  sigmaSq_hat <- eb_positive_scalar(sigmaSq_hat, epsilon = epsilon,
-                                    name = "sigmaSq")
-  omega_hat <- eb_estimate_omega_mom(X, y, sigmaSq_hat, epsilon = epsilon)
-
-  list(omega = omega_hat, sigmaSq = sigmaSq_hat)
-}
-
-eb_estimate_sigmaSq <- function(X, y, option = c("ridge", "olasso"),
-                                epsilon = 1e-6) {
-  option <- match.arg(option)
-  y <- as.vector(y)
+eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
+  n <- nrow(X)
 
   if (option == "ridge") {
-    if (!requireNamespace("glmnet", quietly = TRUE)) {
-      stop("Package 'glmnet' is required for ridge initialization.", call. = FALSE)
-    }
-    sigmaSq_hat <- eb_estimate_sigmaSq_ridge(X, y, epsilon = epsilon)
+    cv_ridge <- glmnet::cv.glmnet(X, y, alpha = 0, intercept = FALSE)
+    y_hat <- as.vector(predict(cv_ridge, s = "lambda.min", newx = X))
+    sigmaSq_hat <- max(epsilon, var(as.vector(y) - y_hat, na.rm = TRUE))
+    
+  } else if (option == "olasso") {
+    ol_fit <- natural::olasso(X, y, intercept = FALSE)
+    sigmaSq_hat <- max(epsilon, ol_fit$sig_obj_1)
+    
   } else {
-    if (!requireNamespace("natural", quietly = TRUE)) {
-      stop("Package 'natural' is required for olasso initialization.", call. = FALSE)
-    }
-    olasso <- natural::olasso(X, y, intercept = FALSE)
-    sigmaSq_hat <- olasso$sig_obj_1
+    stop("Invalid option. Please choose 'ridge' or 'olasso'.")
   }
 
-  eb_positive_scalar(sigmaSq_hat, epsilon = epsilon, name = "sigmaSq")
-}
-
-eb_estimate_sigmaSq_ridge <- function(X, y, epsilon = 1e-6) {
-  cv_fit <- tryCatch(
-    glmnet::cv.glmnet(X, y, alpha = 0, intercept = FALSE, standardize = FALSE),
-    error = function(e) e
-  )
-
-  if (!inherits(cv_fit, "error")) {
-    y_hat <- as.vector(stats::predict(cv_fit, s = "lambda.min", newx = X))
-    return(eb_positive_scalar(stats::var(y - y_hat), epsilon = epsilon, name = "sigmaSq"))
-  }
-
-  warning(
-    sprintf(
-      "Ridge CV initialization failed (%s). Falling back to ridge path initialization.",
-      conditionMessage(cv_fit)
-    )
-  )
-
-  ridge_path <- glmnet::glmnet(X, y, alpha = 0, intercept = FALSE, standardize = FALSE)
-  pred_mat <- stats::predict(ridge_path, newx = X)
-  resid_mat <- sweep(pred_mat, 1, y, FUN = "-")
-  resid_var <- apply(resid_mat, 2, stats::var)
-  best_idx <- which.min(resid_var)
-
-  eb_positive_scalar(resid_var[best_idx], epsilon = epsilon, name = "sigmaSq")
-}
-
-eb_estimate_omega_mom <- function(X, y, sigmaSq_hat, epsilon = 1e-6) {
-  n <- nrow(X)
-  y_sq_sum <- sum(as.vector(y)^2)
+  y_sq_sum <- sum(y^2)
   trace_XX <- sum(X^2)
-
-  if (!is.finite(trace_XX) || trace_XX <= 0) {
-    warning("Method of Moments estimate for omega has non-positive trace(X'X). Returning epsilon.")
-    return(epsilon)
+  # From: 1/n * y'y = 1/n * trace(X'X) * omega + sigmaSq
+  # omega = (y'y - n * sigmaSq) / trace(X'X)
+  numerator <- y_sq_sum - (n * sigmaSq_hat)
+  if (trace_XX <= 0 || numerator <= 0) {
+    omega_hat <- epsilon
+  } else {
+    omega_hat <- max(epsilon, numerator / trace_XX)
   }
-
-  numerator <- y_sq_sum - n * sigmaSq_hat
-  if (!is.finite(numerator) || numerator <= 0) {
-    warning("Method of Moments estimate for omega is non-positive. Returning epsilon.")
-    return(epsilon)
-  }
-
-  eb_positive_scalar(numerator / trace_XX, epsilon = epsilon, name = "omega")
+  return(list(sigmaSq = sigmaSq_hat, omega = omega_hat))
 }
 
-eb_positive_scalar <- function(x, epsilon = 1e-6, name = "value") {
-  if (length(x) != 1 || !is.finite(x) || x <= 0) {
-    warning(sprintf("Initialization estimate for %s is not positive and finite. Returning epsilon.", name))
-    return(epsilon)
-  }
-  max(x, epsilon)
-}
 
 eb_run_em_engine <- function(X, y,
                              a_init, b_init, omega_init, sigmaSq_init,
                              null.a, null.b, null.omega, null.sigmaSq,
                              max_iter, iter_burnin, iter_samples,
-                             delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
-                             window_size = 5, converge_rule = "hyper",
+                             delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3, window_size = 5,
                              woodbury = FALSE, approx = FALSE,
                              option = "augmented", diagX = FALSE) {
   n <- nrow(X)
@@ -328,14 +272,8 @@ eb_run_em_engine <- function(X, y,
     sigmaSq_vec <- c(sigmaSq_vec, sigmaSq_new)
     omega_vec <- c(omega_vec, omega_new)
 
-    converged <- if (converge_rule == "hyper") {
-      eb_isConverged_hyper(a_vec, b_vec, sigmaSq_vec, omega_vec,
-                           delta1 = delta1, delta2 = delta2,
-                           window_size = window_size)
-    } else {
-      eb_isConverged_rho(a_vec, b_vec, omega_vec,
-                         delta = delta3, window_size = window_size)
-    }
+    converged <- eb_isConverged_hyper(a_vec, b_vec, sigmaSq_vec, omega_vec, delta1 = delta1, delta2 = delta2, window_size = window_size)
+
     if (converged) {
       cat("Engine converged after", k, "iterations.\n")
       break
@@ -442,7 +380,7 @@ eb_Gibbs_beta <- function(X, y, omega, sigmaSq, nu, lambda,
       M_inv <- eig$vectors %*% diag(M_eig_vals_inv) %*% t(eig$vectors)
       rhs <- y - X %*% u - sqrt(sigmaSq) * delta
       w <- M_inv %*% rhs
-      beta <- u + sweep(t(XD) %*% w, 1, 1, FUN = "*")
+      beta <- u + t(XD) %*% w
     }
     return(beta)
   }
@@ -535,17 +473,6 @@ eb_isConverged_hyper <- function(..., delta1, delta2, window_size = 3) {
     if (all(is.na(rel))) Inf else max(rel, na.rm = TRUE)
   }
   max(vapply(vecs, rel_err, numeric(1)), na.rm = TRUE) < delta2
-}
-
-eb_isConverged_rho <- function(a_vec, b_vec, omega_vec,
-                               delta, window_size = 3) {
-  if (length(a_vec) < window_size + 1) {
-    return(FALSE)
-  }
-  max(abs(diff(tail(a_vec, window_size + 1))),
-      abs(diff(tail(b_vec, window_size + 1))),
-      abs(diff(tail(omega_vec, window_size + 1))),
-      na.rm = TRUE) < delta
 }
 
 eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
