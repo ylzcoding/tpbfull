@@ -9,10 +9,11 @@
 #' @param num_warmup Integer, total number of warm-up iterations across all chains
 #' @param thinning Integer, thinning interval for saved posterior samples
 #' @param iter_pre_opt Iterations for the model competition pre-optimization EM stage for each candidate
-#' @param pre_opt_burnin Burn-in for each model competition pre-optimization EM step
-#' @param pre_opt_samples Sample size for each model competition pre-optimization EM step
+#' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for EB omega and sigmaSq
+#' @param init_option Initialization method for missing EB omega/sigmaSq guesses, either "ridge" or "olasso"
 #' @param iter_selection Number of post-burn-in samples for model selection
 #' @param woodbury Logical, use Woodbury identity in both model competition and full Gibbs sampling
+#' @param diagX Logical, assume diagonal X
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -31,10 +32,12 @@ tpb_full_pipeline <- function(X, y,
                               num_warmup = 25000,
                               thinning = 1,
                               iter_pre_opt = 100,
-                              pre_opt_burnin = 1000,
-                              pre_opt_samples = 1000,
+                              omega_init_guess = NULL,
+                              sigmaSq_init_guess = NULL,
+                              init_option = "ridge",
                               iter_selection = 5000,
                               woodbury = TRUE,
+                              diagX = FALSE,
                               ...) {
 
 
@@ -42,10 +45,6 @@ tpb_full_pipeline <- function(X, y,
   warmup_per_chain <- num_warmup %/% num_chains
   posterior_per_chain <- num_posterior %/% num_chains
   iter_per_chain <- warmup_per_chain + posterior_per_chain
-
-  if (posterior_per_chain < 1L) {
-    stop("num_iter - num_warmup must be at least num_chains so each chain saves at least one posterior draw.")
-  }
 
   final_hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
@@ -61,10 +60,12 @@ tpb_full_pipeline <- function(X, y,
       X = X,
       y = y,
       iter_pre_opt = iter_pre_opt,
-      pre_opt_burnin = pre_opt_burnin,
-      pre_opt_samples = pre_opt_samples,
+      omega_init_guess = omega_init_guess,
+      sigmaSq_init_guess = sigmaSq_init_guess,
+      init_option = init_option,
       iter_selection = iter_selection,
-      woodbury = woodbury
+      woodbury = woodbury,
+      diagX = diagX
     )
     winning_modes <- list(
       a = competition_result$winner$a,
@@ -100,6 +101,7 @@ tpb_full_pipeline <- function(X, y,
       num_burnin = warmup_per_chain * thinning,
       thin = thinning,
       woodbury = woodbury,
+      diagX = diagX,
       hyper_params = final_hyper_params,
       ...
     )

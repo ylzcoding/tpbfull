@@ -11,11 +11,15 @@ run_model_competition(
   omega_init_guess = NULL,
   sigmaSq_init_guess = NULL,
   init_option = "ridge",
-  pre_opt_burnin = 1000,
-  pre_opt_samples = 1000,
   iter_selection = 5000,
   woodbury = TRUE,
-  ...
+  candidates = list(horseshoe = list(a = 0.5, b = 0.5), normal_gamma = list(a = 0.5, b =
+    5), studentt = list(a = 5, b = 0.5)),
+  delta1 = 1e-06,
+  delta2 = 0.001,
+  delta3 = 0.001,
+  window_size = 5,
+  diagX = FALSE
 )
 }
 \arguments{
@@ -29,13 +33,17 @@ run_model_competition(
 
 \item{init_option}{Initialization method for missing omega/sigmaSq guesses, either "ridge" or "olasso".}
 
-\item{pre_opt_burnin, pre_opt_samples}{burn-in and sample size for each pre-optimization EM step.}
-
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
-\item{...}{Additional arguments passed to initialize_adaptive().}
+\item{candidates}{Candidate models and their initial a,b values.}
+
+\item{delta1, delta2, delta3}{Convergence tolerances.}
+
+\item{window_size}{Size of the convergence window.}
+
+\item{diagX}{Logical, assume diagonal X.}
 }
 \value{
 A list with winner, winner_name, and raw adaptive competition output.

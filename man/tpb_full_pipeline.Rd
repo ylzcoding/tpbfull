@@ -15,10 +15,12 @@ tpb_full_pipeline(
   num_warmup = 25000,
   thinning = 1,
   iter_pre_opt = 100,
-  pre_opt_burnin = 1000,
-  pre_opt_samples = 1000,
+  omega_init_guess = NULL,
+  sigmaSq_init_guess = NULL,
+  init_option = "ridge",
   iter_selection = 5000,
   woodbury = TRUE,
+  diagX = FALSE,
   ...
 )
 }
@@ -41,13 +43,15 @@ tpb_full_pipeline(
 
 \item{iter_pre_opt}{Iterations for the model competition pre-optimization EM stage for each candidate}
 
-\item{pre_opt_burnin}{Burn-in for each model competition pre-optimization EM step}
+\item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for EB omega and sigmaSq}
 
-\item{pre_opt_samples}{Sample size for each model competition pre-optimization EM step}
+\item{init_option}{Initialization method for missing EB omega/sigmaSq guesses, either "ridge" or "olasso"}
 
 \item{iter_selection}{Number of post-burn-in samples for model selection}
 
 \item{woodbury}{Logical, use Woodbury identity in both model competition and full Gibbs sampling}
+
+\item{diagX}{Logical, assume diagonal X}
 
 \item{...}{Additional arguments passed to fullGibbs()}
 }

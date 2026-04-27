@@ -10,20 +10,14 @@ initialize_adaptive(
   omega_init_guess,
   sigmaSq_init_guess,
   iter_pre_opt = 100,
-  pre_opt_burnin = 1000,
-  pre_opt_samples = 1000,
-  iter_burnin_selection = 0,
   iter_selection = 5000,
   candidates = list(horseshoe = list(a = 0.5, b = 0.5), normal_gamma = list(a = 0.5, b =
-    10), studentt = list(a = 10, b = 1)),
+    5), studentt = list(a = 5, b = 0.5)),
   woodbury = TRUE,
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
   window_size = 5,
-  converge_rule = "hyper",
-  approx = FALSE,
-  option = "augmented",
   diagX = FALSE
 )
 }
@@ -34,25 +28,15 @@ initialize_adaptive(
 
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 
-\item{pre_opt_burnin, pre_opt_samples}{burn-in and sample size for each pre-optimization EM step.}
-
-\item{iter_burnin_selection}{Number of burn-in iterations for the model selection chain.}
-
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
 
-\item{candidates}{Candidate models and their fixed a,b values.}
+\item{candidates}{Candidate models and their initial a,b values.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 
 \item{window_size}{Size of the convergence window.}
-
-\item{converge_rule}{Convergence rule, currently "hyper" or "rho".}
-
-\item{approx}{Logical placeholder kept for API compatibility.}
-
-\item{option}{"augmented" or "naive" nu update.}
 
 \item{diagX}{Logical, assume diagonal X.}
 }
