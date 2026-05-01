@@ -2,7 +2,7 @@
 % Please edit documentation in R/log_marginal_beta.R
 \name{log_marginal_posterior}
 \alias{log_marginal_posterior}
-\title{compute logp(beta_i|a,b,phi) (integrate out nu and lambda)}
+\title{Compute marginal log posterior for TPB hyperparameters}
 \usage{
 log_marginal_posterior(
   a,
@@ -27,13 +27,17 @@ log_marginal_posterior(
 
 \item{phi}{global shrinkage parameter}
 
-\item{s_prior_a, }{prior shape parameter for a}
+\item{beta_vec}{Coefficient vector.}
 
-\item{r_prior_a, }{prior rate parameter for a}
+\item{s_prior_a}{Prior shape parameter for a.}
 
-\item{s_prior_b, }{prior shape parameter for b}
+\item{r_prior_a}{Prior rate parameter for a.}
 
-\item{r_prior_b, }{prior rate parameter for b}
+\item{s_prior_b}{Prior shape parameter for b.}
+
+\item{r_prior_b}{Prior rate parameter for b.}
+
+\item{scale_phi}{Half-Cauchy scale parameter for phi.}
 
 \item{prior_type_a}{prior type for a: "gamma" or "hcauchy"}
 
@@ -44,5 +48,5 @@ log_marginal_posterior(
 \item{scale_b}{Half-Cauchy scale parameter for b}
 }
 \description{
-compute logp(beta_i|a,b,phi) (integrate out nu and lambda)
+Compute marginal log posterior for TPB hyperparameters
 }

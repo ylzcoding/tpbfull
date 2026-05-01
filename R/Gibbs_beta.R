@@ -2,14 +2,13 @@
 #' @param X n*p design matrix
 #' @param y n*1 response vector
 #' @param phi global shrinkage parameter (scalar)
-#' @param nu p*1 coefficient vector
-#' @param lambda p*1 coefficient vector
+#' @param psi p*1 local prior variance multiplier
 #' @param sigmaSq error variance (scalar)
 #' @param woodbury binary logic variable, apply woodbury identity or not
 #' @param diagX binary logic variable, if TRUE assumes X is diagonal
 #' @return posterior vector beta
 #' @export
-Gibbs_beta = function(X, y, a, b, phi, sigmaSq, nu, lambda, woodbury = FALSE, diagX = FALSE){
+Gibbs_beta = function(X, y, a, b, phi, sigmaSq, psi, woodbury = FALSE, diagX = FALSE){
   # phi: scalar (global variance component)
   # psi: p*1 vector (local variance component)
   # Prior: beta_j ~ N(0, phi * psi_j)
@@ -18,7 +17,7 @@ Gibbs_beta = function(X, y, a, b, phi, sigmaSq, nu, lambda, woodbury = FALSE, di
     if (!woodbury) {
       # Standard Logic (p < n)
       # eta corresponds to the prior variance of beta
-      eta <- phi * nu / lambda
+      eta <- phi * psi
       Xrteta <- (X / sqrt(sigmaSq)) %*% diag(sqrt(eta))
       AA <- eigen(t(Xrteta) %*% Xrteta)
       nonnegative_eigenVals <- ifelse(AA$values + 1 > 0, 1/(AA$values + 1), 0)
@@ -29,7 +28,7 @@ Gibbs_beta = function(X, y, a, b, phi, sigmaSq, nu, lambda, woodbury = FALSE, di
       # Woodbury Identity Logic (p >> n)
       n <- nrow(X)
       p <- ncol(X)
-      d <- phi * nu / lambda
+      d <- phi * psi
       # sample u ~ N(0, D) where D = diag(d)
       u <- rnorm(p, 0, sqrt(d))
       # sample delta ~ N(0, I_n)
@@ -50,9 +49,9 @@ Gibbs_beta = function(X, y, a, b, phi, sigmaSq, nu, lambda, woodbury = FALSE, di
     return(beta)
   } else {
     # Diagonal X Case
-    omega <- a*phi/b
-    mean_beta <- ((diag(X) * y) / sigmaSq)/(diag(X)^2/sigmaSq + lambda/(omega*nu))
-    var_beta <- 1/(diag(X)^2/sigmaSq + lambda/(omega*nu))
+    prior_precision <- 1 / (phi * pmax(psi, 1e-16))
+    mean_beta <- ((diag(X) * y) / sigmaSq)/(diag(X)^2/sigmaSq + prior_precision)
+    var_beta <- 1/(diag(X)^2/sigmaSq + prior_precision)
     return(rnorm(length(mean_beta))*sqrt(var_beta) + mean_beta)
   }
 

@@ -4,18 +4,7 @@
 \alias{Gibbs_beta}
 \title{draw posterior beta (a, b, phi parameterization)}
 \usage{
-Gibbs_beta(
-  X,
-  y,
-  a,
-  b,
-  phi,
-  sigmaSq,
-  nu,
-  lambda,
-  woodbury = FALSE,
-  diagX = FALSE
-)
+Gibbs_beta(X, y, a, b, phi, sigmaSq, psi, woodbury = FALSE, diagX = FALSE)
 }
 \arguments{
 \item{X}{n*p design matrix}
@@ -26,9 +15,7 @@ Gibbs_beta(
 
 \item{sigmaSq}{error variance (scalar)}
 
-\item{nu}{p*1 coefficient vector}
-
-\item{lambda}{p*1 coefficient vector}
+\item{psi}{p*1 local prior variance multiplier}
 
 \item{woodbury}{binary logic variable, apply woodbury identity or not}
 

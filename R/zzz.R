@@ -1,7 +1,7 @@
 #' @keywords internal
 .onLoad <- function(libname, pkgname) {
   message(sprintf("Package '%s' is being loaded from '%s'", pkgname, libname))
-  required_packages <- c("GIGrvg", "statmod", "mvtnorm", "coda", "gsl")
+  required_packages <- c("statmod", "mvtnorm", "coda", "gsl")
   missing_packages <- required_packages[
     !vapply(required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1))
   ]

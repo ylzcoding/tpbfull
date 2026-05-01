@@ -1,19 +1,19 @@
-#' compute logp(beta_i|a,b,phi) (integrate out nu and lambda)
+#' Compute marginal log posterior for TPB hyperparameters
 #' @import gsl
 #' @import mvtnorm
 #' @param a shape parameter a
 #' @param b shape parameter b
 #' @param phi global shrinkage parameter
-#' @param beta_vec
-#' @param s_prior_a, prior shape parameter for a
-#' @param r_prior_a, prior rate parameter for a
-#' @param s_prior_b, prior shape parameter for b
-#' @param r_prior_b, prior rate parameter for b
+#' @param beta_vec Coefficient vector.
+#' @param s_prior_a Prior shape parameter for a.
+#' @param r_prior_a Prior rate parameter for a.
+#' @param s_prior_b Prior shape parameter for b.
+#' @param r_prior_b Prior rate parameter for b.
 #' @param prior_type_a prior type for a: "gamma" or "hcauchy"
 #' @param prior_type_b prior type for b: "gamma" or "hcauchy"
 #' @param scale_a Half-Cauchy scale parameter for a
 #' @param scale_b Half-Cauchy scale parameter for b
-#' @param scale_phi
+#' @param scale_phi Half-Cauchy scale parameter for phi.
 log_marginal_posterior <- function(a, b, phi, beta_vec,
                                    s_prior_a, r_prior_a,
                                    s_prior_b, r_prior_b,

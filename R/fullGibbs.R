@@ -1,4 +1,4 @@
-#' Fully Gibbs Sampler Function with Miller's Approximation
+#' Fully Gibbs Sampler Function with IGIG Local Shrinkage
 #'
 #' @import mvtnorm
 #' @import coda
@@ -10,12 +10,13 @@
 #' @param woodbury Logical, use Woodbury identity in beta update
 #' @param diagX Logical, assume diagonal X
 #' @param proposal_type String, "separate" or "bi_fixed" or "bi_adaptive" or "all_adaptive"
-#' @param mh_step_a, mh_step_b, mh_step_phi step size for each hyper-parameter under the 'separate' mode
+#' @param mh_step_a Step size for the a update under the "separate" mode.
+#' @param mh_step_b Step size for the b update under the "separate" mode.
+#' @param mh_step_phi Step size for the phi update under the "separate" mode.
 #' @param adapt_block_size Integer, number of iterations per adaptation block
 #' @param r_opt Numeric, target acceptance rate for adaptive MH (default 0.3)
 #' @param cov_matrix Matrix, 2x2 covariance matrix for bi_fixed proposals
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)
-#' @param mh_step scalar, step size for MH uniform proposal
 #' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
 #' @export
 fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
@@ -56,18 +57,15 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   b       <- pmin(pmax(b, 1e-4), 1e4)
   phi     <- abs(rcauchy(1, location = 0, scale = hyper_params$scale_phi))
   phi     <- pmin(pmax(phi, 1e-4), 1e4) # 1
-  nu      <- rgamma(p, shape = a, rate = 1) # 1
-  lambda  <- rgamma(p, shape = b, rate = 1) # 1
-  beta    <- rnorm(p, mean = 0, sd = sqrt(phi * (nu / lambda)))
+  psi     <- rep(1, p)
+  zeta    <- rep(1, p)
+  beta    <- rnorm(p, mean = 0, sd = sqrt(phi * psi))
 
-  # w       <- 1
-  # xi      <- rep(1, p)
-
-  # Storage matrices (only for saved samples)
+  # Storage matrices
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
   store_beta_loglik <- numeric(n_save)
   store_total_logpost <- numeric(n_save)
-  store_scalars <- matrix(0, nrow = n_save, ncol = 4) # sigmaSq, phi, a, b; if use w then set it to 5
+  store_scalars <- matrix(0, nrow = n_save, ncol = 4) # sigmaSq, phi, a, b
   colnames(store_scalars) <- c("sigmaSq", "phi", "a", "b")
   idx <- 0
   beta_loglik <- NA_real_
@@ -108,15 +106,12 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
 
   for (iter in 1:total_iter) {
     beta <- Gibbs_beta(X = X, y = y, a = a, b = b,
-                       phi = phi, sigmaSq = sigmaSq, nu = nu, lambda = lambda,
+                       phi = phi, sigmaSq = sigmaSq, psi = psi,
                        woodbury = woodbury, diagX = diagX)
 
     sigmaSq <- Gibbs_sigmaSq(n, X, y, beta)
-    lambda <- Gibbs_lambda(b, p, phi, beta, nu)
-    #w <- Gibbs_w(phi)
-    #phi <- Gibbs_phi(p, nu, lambda, w, beta)
-    #xi <- Gibbs_xi(a, p, nu)
-    nu <- Gibbs_nu(phi, beta, lambda, a)
+    zeta <- Gibbs_zeta(p, a, b, psi)
+    psi <- Gibbs_psi(p, b, phi, beta, zeta)
 
     if (proposal_type == "separate"){
       a_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "a",

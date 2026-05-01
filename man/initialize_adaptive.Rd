@@ -9,16 +9,16 @@ initialize_adaptive(
   y,
   omega_init_guess,
   sigmaSq_init_guess,
-  iter_pre_opt = 100,
-  iter_selection = 5000,
-  candidates = list(horseshoe = list(a = 0.5, b = 0.5), normal_gamma = list(a = 0.5, b =
-    5), studentt = list(a = 5, b = 0.5)),
-  woodbury = TRUE,
-  delta1 = 1e-06,
-  delta2 = 0.001,
-  delta3 = 0.001,
-  window_size = 5,
-  diagX = FALSE
+  iter_pre_opt,
+  iter_selection,
+  omega_mc_samples,
+  candidates,
+  woodbury,
+  delta1,
+  delta2,
+  delta3,
+  window_size,
+  diagX
 )
 }
 \arguments{
@@ -29,6 +29,8 @@ initialize_adaptive(
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
+
+\item{omega_mc_samples}{Deprecated; retained for compatibility and ignored by the deterministic z-space Laplace update.}
 
 \item{candidates}{Candidate models and their initial a,b values.}
 

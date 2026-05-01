@@ -2,7 +2,7 @@
 % Please edit documentation in R/fullGibbs.R
 \name{fullGibbs}
 \alias{fullGibbs}
-\title{Fully Gibbs Sampler Function with Miller's Approximation}
+\title{Fully Gibbs Sampler Function with IGIG Local Shrinkage}
 \usage{
 fullGibbs(
   X,
@@ -40,7 +40,11 @@ fullGibbs(
 
 \item{proposal_type}{String, "separate" or "bi_fixed" or "bi_adaptive" or "all_adaptive"}
 
-\item{mh_step_a, }{mh_step_b, mh_step_phi step size for each hyper-parameter under the 'separate' mode}
+\item{mh_step_a}{Step size for the a update under the "separate" mode.}
+
+\item{mh_step_b}{Step size for the b update under the "separate" mode.}
+
+\item{mh_step_phi}{Step size for the phi update under the "separate" mode.}
 
 \item{adapt_block_size}{Integer, number of iterations per adaptation block}
 
@@ -49,12 +53,10 @@ fullGibbs(
 \item{cov_matrix}{Matrix, 2x2 covariance matrix for bi_fixed proposals}
 
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)}
-
-\item{mh_step}{scalar, step size for MH uniform proposal}
 }
 \value{
 A list containing posterior samples matrices, acceptance rates, covariance matrix.
 }
 \description{
-Fully Gibbs Sampler Function with Miller's Approximation
+Fully Gibbs Sampler Function with IGIG Local Shrinkage
 }

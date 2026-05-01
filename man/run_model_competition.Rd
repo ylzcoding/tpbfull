@@ -12,9 +12,10 @@ run_model_competition(
   sigmaSq_init_guess = NULL,
   init_option = "ridge",
   iter_selection = 5000,
+  omega_mc_samples = 500,
   woodbury = TRUE,
   candidates = list(horseshoe = list(a = 0.5, b = 0.5), normal_gamma = list(a = 0.5, b =
-    5), studentt = list(a = 5, b = 0.5)),
+    10), studentt = list(a = 10, b = 0.5), ridge = list(a = 10, b = 10)),
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
@@ -34,6 +35,8 @@ run_model_competition(
 \item{init_option}{Initialization method for missing omega/sigmaSq guesses, either "ridge" or "olasso".}
 
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
+
+\item{omega_mc_samples}{Deprecated; retained for compatibility and ignored by the deterministic z-space Laplace update.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
