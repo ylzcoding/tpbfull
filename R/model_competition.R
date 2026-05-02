@@ -543,9 +543,9 @@ run_model_competition <- function(X, y,
                                   woodbury = TRUE,
                                   candidates = list(
                                     horseshoe = list(a = 0.5, b = 0.5),
-                                    normal_gamma = list(a = 0.5, b = sqrt(1000.0)),
-                                    studentt = list(a = sqrt(1000.0), b = 0.5),
-                                    ridge = list(a = sqrt(1000.0), b = sqrt(1000.0))
+                                    normal_gamma = list(a = 0.5, b = 20.0),
+                                    studentt = list(a = 20.0, b = 0.5),
+                                    ridge = list(a = 20.0, b = 20.0)
                                   ),
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
