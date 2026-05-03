@@ -539,13 +539,12 @@ run_model_competition <- function(X, y,
                                   sigmaSq_init_guess = NULL,
                                   init_option = "ridge",
                                   iter_selection = 5000,
-                                  omega_mc_samples = 500,
+                                  omega_mc_samples = 1000,
                                   woodbury = TRUE,
                                   candidates = list(
-                                    horseshoe = list(a = 0.5, b = 0.5),
-                                    normal_gamma = list(a = 0.5, b = 20.0),
-                                    studentt = list(a = 20.0, b = 0.5),
-                                    ridge = list(a = 20.0, b = 20.0)
+                                    sb = list(a = 1.0, b = 0.5),
+                                    normal_gamma = list(a = 0.5, b = 25.0),
+                                    ridge = list(a = 25.0, b = 25.0)
                                   ),
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
