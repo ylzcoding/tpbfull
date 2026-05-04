@@ -21,7 +21,6 @@
 tpb_full_pipeline <- function(X, y,
                               num_chains = 4,
                               auto_find = TRUE,
-                              cv = 0.5,
                               hyper_params = list(prior_type_a = "gamma",
                                                   prior_type_b = "gamma",
                                                   s_a = 1.5, r_a = 1,
@@ -72,9 +71,10 @@ tpb_full_pipeline <- function(X, y,
       a = competition_result$winner$a,
       b = competition_result$winner$b
     )
-    shape_val <- 1 / (cv^2)
+    shape_val <- 1.5
     rate_a <- shape_val / winning_modes$a
     rate_b <- shape_val / winning_modes$b
+    
     final_hyper_params <- modifyList(
       final_hyper_params,
       list(

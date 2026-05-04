@@ -116,55 +116,23 @@ eb_joint_laplace_z_space <- function(beta_mode, nu_mode, lambda_mode,
 
   g <- sqrt(nu_mode / lambda_mode)
   z <- beta_mode / g
-  z_over_2w <- z / (2 * omega_current)
-  z2_over_4w <- z^2 / (4 * omega_current)
 
   J_beta <- cbind(
     diag(g, p),
     diag(0.5 * beta_mode, p),
     diag(-0.5 * beta_mode, p)
   )
-  d11 <- rep(1 / omega_current, p)
-  d12 <- z_over_2w       
-  d13 <- -z_over_2w      
-  d22 <- a_current * nu_mode - z2_over_4w
-  d23 <- z2_over_4w
-  d33 <- b_current * lambda_mode - z2_over_4w
-
-  # Hessian Projection
   eig_floor <- 1e-6
-  for (i in seq_len(p)) {
-    mat3 <- matrix(c(d11[i], d12[i], d13[i],
-                     d12[i], d22[i], d23[i],
-                     d13[i], d23[i], d33[i]), nrow = 3, ncol = 3)
-    
-    eig <- eigen(mat3, symmetric = TRUE)
-    if (eig$values[3] < eig_floor) {
-      mat3_proj <- eig$vectors %*% diag(pmax(eig$values, eig_floor), 3) %*% t(eig$vectors)
-      mat3_proj <- (mat3_proj + t(mat3_proj)) / 2
-    
-      d11[i] <- mat3_proj[1, 1]
-      d12[i] <- mat3_proj[1, 2]
-      d13[i] <- mat3_proj[1, 3]
-      d22[i] <- mat3_proj[2, 2]
-      d23[i] <- mat3_proj[2, 3]
-      d33[i] <- mat3_proj[3, 3]
-    }
-  }
-
+  d11 <- pmax(rep(1 / omega_current, p), eig_floor)
+  d22 <- pmax(a_current * nu_mode, eig_floor)
+  d33 <- pmax(b_current * lambda_mode, eig_floor)
   D_block <- matrix(0, nrow = 3 * p, ncol = 3 * p)
   idx_z <- seq_len(p)
   idx_nu <- p + idx_z
   idx_lambda <- 2 * p + idx_z
 
   D_block[idx_z, idx_z] <- diag(d11, p)
-  D_block[idx_z, idx_nu] <- diag(d12, p)
-  D_block[idx_nu, idx_z] <- diag(d12, p)
-  D_block[idx_z, idx_lambda] <- diag(d13, p)
-  D_block[idx_lambda, idx_z] <- diag(d13, p)
   D_block[idx_nu, idx_nu] <- diag(d22, p)
-  D_block[idx_nu, idx_lambda] <- diag(d23, p)
-  D_block[idx_lambda, idx_nu] <- diag(d23, p)
   D_block[idx_lambda, idx_lambda] <- diag(d33, p)
 
   M_J <- t(J_beta) %*% XtX %*% J_beta
@@ -542,9 +510,10 @@ run_model_competition <- function(X, y,
                                   omega_mc_samples = 1000,
                                   woodbury = TRUE,
                                   candidates = list(
+                                    hs = list(a = 0.5, b = 0.5),
                                     sb = list(a = 1.0, b = 0.5),
-                                    normal_gamma = list(a = 0.5, b = 25.0),
-                                    ridge = list(a = 25.0, b = 25.0)
+                                    normal_gamma = list(a = 0.5, b = 10.0),
+                                    ridge = list(a = 10.0, b = 10.0)
                                   ),
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
