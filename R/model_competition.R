@@ -513,7 +513,7 @@ run_model_competition <- function(X, y,
                                     hs = list(a = 0.5, b = 0.5),
                                     sb = list(a = 1.0, b = 0.5),
                                     normal_gamma = list(a = 0.5, b = 10.0),
-                                    ridge = list(a = 10.0, b = 10.0)
+                                    studentt = list(a = 10.0, b = 0.5)
                                   ),
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
