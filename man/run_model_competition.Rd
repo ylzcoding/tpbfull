@@ -12,10 +12,12 @@ run_model_competition(
   sigmaSq_init_guess = NULL,
   init_option = "ridge",
   iter_selection = 5000,
-  omega_mc_samples = 500,
   woodbury = TRUE,
-  candidates = list(horseshoe = list(a = 0.5, b = 0.5), normal_gamma = list(a = 0.5, b =
-    10), studentt = list(a = 10, b = 0.5), ridge = list(a = 10, b = 10)),
+  candidates = list(hs = list(a = 0.51, b = 0.5), sb = list(a = 1, b = 0.5), normal_gamma
+    = list(a = 0.51, b = 10), studentt = list(a = 10, b = 0.5)),
+  pre_opt_burnin = 200,
+  pre_opt_samples = 200,
+  iter_burnin_selection = 0,
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
@@ -30,17 +32,20 @@ run_model_competition(
 
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 
-\item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for omega and sigmaSq.}
+\item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for omega and sigmaSq.
+The Gibbs E-step uses phi = omega * b / a.}
 
 \item{init_option}{Initialization method for missing omega/sigmaSq guesses, either "ridge" or "olasso".}
 
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
 
-\item{omega_mc_samples}{Deprecated; retained for compatibility and ignored by the deterministic z-space Laplace update.}
-
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
 \item{candidates}{Candidate models and their initial a,b values.}
+
+\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
+
+\item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 

@@ -5,50 +5,6 @@ eb_positive_finite <- function(x, lower) {
   x
 }
 
-eb_chol2inv_pd <- function(mat, jitter = 1e-10, max_tries = 10) {
-  mat <- (mat + t(mat)) / 2
-  diag_scale <- mean(abs(diag(mat)), na.rm = TRUE)
-  jitter_scale <- if (is.finite(diag_scale) && diag_scale > 0) diag_scale else 1
-  for (i in 0:max_tries) {
-    bump <- if (i == 0) 0 else jitter * 10^(i - 1) * jitter_scale
-    candidate <- mat
-    diag(candidate) <- diag(candidate) + bump
-    chol_candidate <- tryCatch(chol(candidate), error = function(e) NULL)
-    if (!is.null(chol_candidate)) {
-      return(chol2inv(chol_candidate))
-    }
-  }
-  stop("Matrix is not positive definite after jitter stabilization.")
-}
-
-eb_chol_solve_pd <- function(mat, rhs, jitter = 1e-10, max_tries = 10) {
-  mat <- (mat + t(mat)) / 2
-  diag_scale <- mean(abs(diag(mat)), na.rm = TRUE)
-  jitter_scale <- if (is.finite(diag_scale) && diag_scale > 0) diag_scale else 1
-  for (i in 0:max_tries) {
-    bump <- if (i == 0) 0 else jitter * 10^(i - 1) * jitter_scale
-    candidate <- mat
-    diag(candidate) <- diag(candidate) + bump
-    chol_candidate <- tryCatch(chol(candidate), error = function(e) NULL)
-    if (!is.null(chol_candidate)) {
-      return(backsolve(chol_candidate,
-                       forwardsolve(t(chol_candidate), rhs)))
-    }
-  }
-  stop("Matrix is not positive definite after jitter stabilization.")
-}
-
-eb_idigamma <- function(y) {
-  lower <- 1e-8
-  upper <- 1
-  while (digamma(upper) < y && upper < 1e8) {
-    upper <- upper * 2
-  }
-  stats::uniroot(function(x) digamma(x) - y,
-                 lower = lower, upper = upper)$root
-}
-
-
 eb_isConverged_hyper <- function(..., delta1, delta2, window_size = 3) {
   vecs <- list(...)
   if (any(vapply(vecs, length, integer(1)) < window_size + 1)) {
@@ -83,207 +39,183 @@ eb_d_tpb <- function(beta_vec, a, b, phi) {
       a <= 0 || b <= 0 || phi <= 0) {
     return(rep(NA_real_, length(beta_vec)))
   }
-  const <- gamma(0.5 + b) * gamma(a + b) / (gamma(a) * gamma(b) * sqrt(2 * pi * phi))
+
+  log_const <- lgamma(0.5 + b) + lgamma(a + b) -
+    lgamma(a) - lgamma(b) - 0.5 * log(2 * pi * phi)
   U_a <- 0.5 + b
   U_b <- 1.5 - a
-  
+
   vapply(beta_vec, function(beta_i) {
     z_val <- max(beta_i^2 / (2 * phi), .Machine$double.xmin)
-    
     U_val <- tryCatch({
       gsl::hyperg_U(U_a, U_b, z_val)
     }, error = function(e) NA_real_)
-    
-    if (is.na(U_val)) {
+
+    if (!is.finite(U_val) || U_val <= 0) {
       return(NA_real_)
     }
-    pmin(const * U_val, .Machine$double.xmax)
+    exp(pmin(log_const + log(U_val), log(.Machine$double.xmax)))
   }, numeric(1))
 }
 
-eb_joint_laplace_z_space <- function(beta_mode, nu_mode, lambda_mode,
-                                     omega_current, a_current, b_current,
-                                     sigmaSq, XtX) {
-  beta_mode <- as.vector(beta_mode)
-  nu_mode <- pmax(as.vector(nu_mode), .Machine$double.xmin)
-  lambda_mode <- pmax(as.vector(lambda_mode), .Machine$double.xmin)
-  omega_current <- eb_positive_finite(omega_current, 1e-16)
-  sigmaSq <- eb_positive_finite(sigmaSq, 1e-16)
-  p <- length(beta_mode)
-  if (!is.matrix(XtX) || nrow(XtX) != p || ncol(XtX) != p) {
-    stop("XtX must be a p by p matrix matching beta_mode.")
+eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
+                              beta0, psi0, zeta0, burn = 0,
+                              woodbury = FALSE, diagX = FALSE) {
+  total <- num + burn
+  if (total < 1) {
+    stop("num + burn must be at least 1.")
   }
 
-  g <- sqrt(nu_mode / lambda_mode)
-  z <- beta_mode / g
+  p <- ncol(X)
+  beta_samples <- matrix(NA_real_, nrow = total, ncol = p)
+  psi_samples <- matrix(NA_real_, nrow = total, ncol = p)
+  zeta_samples <- matrix(NA_real_, nrow = total, ncol = p)
 
-  J_beta <- cbind(
-    diag(g, p),
-    diag(0.5 * beta_mode, p),
-    diag(-0.5 * beta_mode, p)
+  beta_samples[1, ] <- beta0
+  psi_samples[1, ] <- pmax(psi0, 1e-16)
+  zeta_samples[1, ] <- pmax(zeta0, 1e-16)
+
+  if (total >= 2) {
+    for (i in 2:total) {
+      phi_current <- eb_positive_finite(omega * b / a, 1e-16)
+      beta_samples[i, ] <- Gibbs_beta(
+        X = X, y = y, a = a, b = b,
+        phi = phi_current,
+        sigmaSq = eb_positive_finite(sigmaSq, 1e-16),
+        psi = psi_samples[i - 1, ],
+        woodbury = woodbury, diagX = diagX
+      )
+      zeta_samples[i, ] <- Gibbs_zeta(
+        p = p, a = a, b = b, psi = psi_samples[i - 1, ]
+      )
+      psi_samples[i, ] <- Gibbs_psi(
+        p = p, b = b, phi = phi_current,
+        beta = beta_samples[i, ], zeta = zeta_samples[i, ]
+      )
+    }
+  }
+
+  keep <- (burn + 1):total
+  list(
+    beta = beta_samples[keep, , drop = FALSE],
+    psi = psi_samples[keep, , drop = FALSE],
+    zeta = zeta_samples[keep, , drop = FALSE]
   )
-  eig_floor <- 1e-6
-  d11 <- pmax(rep(1 / omega_current, p), eig_floor)
-  d22 <- pmax(a_current * nu_mode, eig_floor)
-  d33 <- pmax(b_current * lambda_mode, eig_floor)
-  D_block <- matrix(0, nrow = 3 * p, ncol = 3 * p)
-  idx_z <- seq_len(p)
-  idx_nu <- p + idx_z
-  idx_lambda <- 2 * p + idx_z
-
-  D_block[idx_z, idx_z] <- diag(d11, p)
-  D_block[idx_nu, idx_nu] <- diag(d22, p)
-  D_block[idx_lambda, idx_lambda] <- diag(d33, p)
-
-  M_J <- t(J_beta) %*% XtX %*% J_beta
-  H <- (1 / sigmaSq) * M_J + D_block
-  H_inv <- eb_chol2inv_pd(H)
-
-  V_z <- pmax(diag(H_inv)[idx_z], 0)
-  omega_new <- max(mean(z^2 + V_z), 1e-16)
-  trace_term <- sum(M_J * H_inv)
-
-  if (!is.finite(omega_new)) {
-    omega_new <- omega_current
-  }
-  if (!is.finite(trace_term)) {
-    trace_term <- 0
-  }
-
-  list(omega_new = omega_new, trace_term = trace_term)
 }
 
+# Current Gibbs functions use the IG-IG TPB representation:
+#   beta | psi, phi ~ N(0, phi * psi), phi = omega * b / a.
+# This is equivalent to the EM formulas with
+#   a * nu = 1 / zeta and b * lambda = 1 / (zeta * psi).
+eb_m_step_a <- function(zeta_matrix) {
+  target <- -mean(log(pmax(zeta_matrix, .Machine$double.xmin)))
+  candidate <- tryCatch(bzinb::idigamma(target), error = function(e) NA_real_)
+  eb_positive_finite(as.numeric(candidate), 1e-6)
+}
+
+eb_m_step_b <- function(psi_matrix, zeta_matrix) {
+  target <- -mean(log(pmax(psi_matrix, .Machine$double.xmin))) -
+    mean(log(pmax(zeta_matrix, .Machine$double.xmin)))
+  candidate <- tryCatch(bzinb::idigamma(target), error = function(e) NA_real_)
+  eb_positive_finite(as.numeric(candidate), 1e-6)
+}
+
+eb_m_step_sigmaSq <- function(beta_matrix, X, y, diagX = FALSE) {
+  y <- as.vector(y)
+  n <- nrow(X)
+  num_samples <- nrow(beta_matrix)
+
+  ssr <- if (diagX) {
+    x_diag <- diag(X)
+    vapply(seq_len(num_samples), function(i) {
+      sum((y - x_diag * beta_matrix[i, ])^2)
+    }, numeric(1))
+  } else {
+    vapply(seq_len(num_samples), function(i) {
+      sum((y - X %*% beta_matrix[i, ])^2)
+    }, numeric(1))
+  }
+
+  eb_positive_finite(mean(ssr) / n, 1e-16)
+}
+
+eb_m_step_omega <- function(beta_matrix, psi_matrix, a_current, b_current) {
+  vals <- beta_matrix^2 * a_current / (b_current * pmax(psi_matrix, 1e-16))
+  finite_vals <- vals[is.finite(vals)]
+  if (length(finite_vals) == 0) {
+    return(1e-6)
+  }
+  eb_positive_finite(mean(finite_vals), 1e-16)
+}
 
 eb_run_em_engine <- function(X, y,
                              a_init, b_init, omega_init, sigmaSq_init,
                              max_iter,
-                             delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3, window_size = 5,
-                             omega_mc_samples = 500,
+                             iter_burnin, iter_samples,
+                             delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
+                             window_size = 5,
                              woodbury = TRUE,
-                             update_a = FALSE,
-                             update_b = FALSE,
+                             update_a = TRUE,
+                             update_b = TRUE,
                              update_omega = TRUE,
                              update_sigmaSq = TRUE,
                              diagX = FALSE) {
-  n <- nrow(X)
   p <- ncol(X)
-  y <- as.vector(y)
-  a_vec <- c(a_init)
-  b_vec <- c(b_init)
-  omega_vec <- c(omega_init)
-  sigmaSq_vec <- c(sigmaSq_init)
+
+  a_vec <- c(eb_positive_finite(a_init, 1e-6))
+  b_vec <- c(eb_positive_finite(b_init, 1e-6))
+  omega_vec <- c(eb_positive_finite(omega_init, 1e-16))
+  sigmaSq_vec <- c(eb_positive_finite(sigmaSq_init, 1e-16))
   beta_diff_vec <- numeric(0)
-  beta0 <- rep(0, p)
-  nu0 <- rep(1, p)
-  lambda0 <- rep(1, p)
-  XtX <- crossprod(X)
-  Xty <- if (diagX) NULL else crossprod(X, y)
 
-  for (k in 1:max_iter) {
-    a_current <- a_vec[k]
-    b_current <- b_vec[k]
-    omega_current <- eb_positive_finite(omega_vec[k], 1e-16)
-    sigmaSq_current <- eb_positive_finite(sigmaSq_vec[k], 1e-16)
+  beta0 <- rnorm(p, mean = 0, sd = sqrt(omega_vec[1] * b_vec[1] / a_vec[1]))
+  psi0 <- rep(1, p)
+  zeta0 <- rep(1, p)
+  last_beta_hat <- NULL
 
-    raw_d <- omega_current * nu0 / lambda0
-    d_current <- pmax(ifelse(is.finite(raw_d), raw_d, .Machine$double.xmin),
-                      .Machine$double.xmin)
-    if (!diagX) {
-      if (woodbury) {
-        XD <- sweep(X, 2, d_current, FUN = "*") 
-        M <- XD %*% t(X)                       
-        diag(M) <- diag(M) + sigmaSq_current    
-        M_inv <- eb_chol2inv_pd(M)
+  for (k in seq_len(max_iter)) {
+    samples <- eb_getsamples_emp(
+      num = iter_samples, X = X, y = y,
+      a = a_vec[k], b = b_vec[k],
+      omega = omega_vec[k], sigmaSq = sigmaSq_vec[k],
+      beta0 = beta0, psi0 = psi0, zeta0 = zeta0,
+      burn = iter_burnin,
+      woodbury = woodbury, diagX = diagX
+    )
 
-        w <- M_inv %*% y
-        beta_mode <- as.vector(t(XD) %*% w)
-        MinvX <- M_inv %*% X
-        diag_XtMinvX <- colSums(X * MinvX) 
-        v_beta <- pmax(d_current - (d_current^2) * diag_XtMinvX, 0)
-
-        residuals_mode <- as.vector(y - X %*% beta_mode)
-      } else {
-        precision_beta <- XtX / sigmaSq_current + diag(1 / d_current, p)
-        sigma_beta <- eb_chol2inv_pd(precision_beta)
-        beta_mode <- as.vector(sigma_beta %*% (Xty / sigmaSq_current))
-        v_beta <- pmax(diag(sigma_beta), 0)
-        residuals_mode <- y - as.vector(X %*% beta_mode)
-      }
-    } else {
-      x_diag <- diag(X)
-      precision_beta_diag <- x_diag^2 / sigmaSq_current + 1 / d_current
-      v_beta <- pmax(1 / precision_beta_diag, 0)
-      beta_mode <- v_beta * x_diag * y / sigmaSq_current
-      residuals_mode <- y - x_diag * beta_mode
-    }
-
-    p_gig <- a_current - 0.5
-    a_gig <- 2 * a_current
-    b_gig <- pmax(beta_mode^2 * lambda0 / omega_current, 0)
-    gig_root <- sqrt(p_gig^2 + a_gig * b_gig)
-    nu_mode <- pmax((p_gig + gig_root) / a_gig, .Machine$double.xmin)
-
-    lambda_rate <- b_current + beta_mode^2 / (2 * omega_current * nu_mode)
-    lambda_mode <- pmax((b_current + 0.5) / lambda_rate, .Machine$double.xmin)
-
-    laplace_z <- if (update_omega || update_sigmaSq) {
-      XtX_pass <- XtX
-      if (is.null(XtX_pass)) {
-        if (diagX) {
-          XtX_pass <- diag(diag(X)^2, p)
-        } else {
-          XtX_pass <- crossprod(X)
-        }
-      }
-      
-      eb_joint_laplace_z_space(
-        beta_mode = beta_mode,
-        nu_mode = nu_mode,
-        lambda_mode = lambda_mode,
-        omega_current = omega_current,
-        a_current = a_current,
-        b_current = b_current,
-        sigmaSq = sigmaSq_current,
-        XtX = XtX_pass
-      )
-    } else {
-      list(omega_new = omega_current, trace_term = 0)
-    }
-
-    a_new <- if (update_a) {
-      max(1e-6, eb_idigamma(mean(log(nu_mode)) + log(a_current)))
-    } else {
-      a_current
-    }
-    b_new <- if (update_b) {
-      max(1e-6, eb_idigamma(mean(log(lambda_mode)) + log(b_current)))
-    } else {
-      b_current
-    }
-    sigmaSq_new <- if (update_sigmaSq) {
-      max((sum(residuals_mode^2) + laplace_z$trace_term) / n, 1e-16)
-    } else {
-      sigmaSq_current
-    }
+    a_new <- if (update_a) eb_m_step_a(samples$zeta) else a_vec[k]
+    b_new <- if (update_b) eb_m_step_b(samples$psi, samples$zeta) else b_vec[k]
+    sigmaSq_new <- if (update_sigmaSq) eb_m_step_sigmaSq(samples$beta, X, y, diagX) else sigmaSq_vec[k]
     omega_new <- if (update_omega) {
-      laplace_z$omega_new
+      eb_m_step_omega(samples$beta, samples$psi, a_vec[k], b_vec[k])
     } else {
-      omega_current
+      omega_vec[k]
     }
 
-    beta_diff_vec <- c(beta_diff_vec, mean((beta_mode - beta0)^2))
-    beta0 <- beta_mode
-    nu0 <- nu_mode
-    lambda0 <- lambda_mode
+    beta0 <- samples$beta[nrow(samples$beta), ]
+    psi0 <- samples$psi[nrow(samples$psi), ]
+    zeta0 <- samples$zeta[nrow(samples$zeta), ]
+
+    beta_hat <- colMeans(samples$beta)
+    beta_diff_vec <- c(
+      beta_diff_vec,
+      if (is.null(last_beta_hat)) NA_real_ else mean((beta_hat - last_beta_hat)^2)
+    )
+    last_beta_hat <- beta_hat
+
     a_vec <- c(a_vec, a_new)
     b_vec <- c(b_vec, b_new)
     sigmaSq_vec <- c(sigmaSq_vec, sigmaSq_new)
     omega_vec <- c(omega_vec, omega_new)
 
-    converged <- eb_isConverged_hyper(a_vec, b_vec, sigmaSq_vec, omega_vec, delta1 = delta1, delta2 = delta2, window_size = window_size)
+    hyper_converged <- eb_isConverged_hyper(
+      a_vec, b_vec, sigmaSq_vec, omega_vec,
+      delta1 = delta1, delta2 = delta2, window_size = window_size
+    )
+    beta_converged <- length(beta_diff_vec) >= window_size &&
+      max(tail(beta_diff_vec, window_size), na.rm = TRUE) < delta3
 
-    if (converged && length(beta_diff_vec) >= window_size &&
-        max(tail(beta_diff_vec, window_size), na.rm = TRUE) < delta3) {
+    if (hyper_converged && beta_converged) {
       cat("Engine converged after", k, "iterations.\n")
       break
     }
@@ -299,8 +231,7 @@ eb_run_em_engine <- function(X, y,
   list(
     params = list(a = a_vec[l], b = b_vec[l],
                   omega = omega_vec[l], sigmaSq = sigmaSq_vec[l]),
-    final_state = list(beta0 = beta0, v_beta = v_beta,
-                       nu0 = nu0, lambda0 = lambda0),
+    final_state = list(beta0 = beta0, psi0 = psi0, zeta0 = zeta0),
     trajectories = list(a_traj = a_vec, b_traj = b_vec,
                         sigmaSq_traj = sigmaSq_vec,
                         omega_traj = omega_vec,
@@ -308,16 +239,19 @@ eb_run_em_engine <- function(X, y,
   )
 }
 
-
 #' Performs the Data-Adaptive Initialization Strategy via Candidate Model Competition.
 #'
 #' @param X,y Model matrix and response vector.
 #' @param omega_init_guess,sigmaSq_init_guess Initial guesses for omega and sigmaSq.
+#'   The Gibbs E-step uses phi = omega * b / a.
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
+#' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
+#' @param iter_burnin_selection Burn-in iterations for the model indicator chain.
 #' @param iter_selection Number of post-burn-in samples for model selection.
-#' @param omega_mc_samples Deprecated; retained for compatibility and ignored by the deterministic z-space Laplace update.
 #' @param candidates Candidate models and their initial a,b values.
 #' @param woodbury Logical, use Woodbury identity in beta updates.
+#' @param update_a,update_b Logical, update TPB shape parameters during pre-optimization.
+#' @param update_omega,update_sigmaSq Logical, update omega and sigmaSq during pre-optimization.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
 #' @param diagX Logical, assume diagonal X.
@@ -328,20 +262,28 @@ initialize_adaptive <- function(X, y,
                                 sigmaSq_init_guess,
                                 iter_pre_opt,
                                 iter_selection,
-                                omega_mc_samples,
                                 candidates, woodbury,
-                                delta1, delta2, delta3,
-                                window_size, diagX) {
-  cat("Stage 1: Pre-optimizing each candidate model via Laplace-ECM...\n")
+                                pre_opt_burnin = 500,
+                                pre_opt_samples = 1000,
+                                iter_burnin_selection = 0,
+                                update_a = TRUE,
+                                update_b = TRUE,
+                                update_omega = TRUE,
+                                update_sigmaSq = TRUE,
+                                delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
+                                window_size = 5, diagX = FALSE) {
+  cat("Stage 1: Pre-optimizing each candidate model via Gibbs-within-EM...\n")
 
   pre_optimized_params <- list()
   pre_optimized_states <- list()
+  pre_optimized_trajectories <- list()
   engine_args <- list(
     X = X, y = y,
     max_iter = iter_pre_opt,
+    iter_burnin = pre_opt_burnin,
+    iter_samples = pre_opt_samples,
     delta1 = delta1, delta2 = delta2, delta3 = delta3,
-    window_size = window_size, woodbury = woodbury, 
-    omega_mc_samples = omega_mc_samples,
+    window_size = window_size, woodbury = woodbury,
     diagX = diagX
   )
 
@@ -354,71 +296,44 @@ initialize_adaptive <- function(X, y,
         b_init = candidate_ab$b,
         omega_init = omega_init_guess,
         sigmaSq_init = sigmaSq_init_guess,
-        update_a = FALSE,
-        update_b = FALSE,
-        update_omega = TRUE,
-        update_sigmaSq = TRUE
+        update_a = update_a,
+        update_b = update_b,
+        update_omega = update_omega,
+        update_sigmaSq = update_sigmaSq
       ),
       engine_args
     ))
     pre_optimized_params[[name]] <- opt_res$params
     pre_optimized_states[[name]] <- opt_res$final_state
+    pre_optimized_trajectories[[name]] <- opt_res$trajectories
   }
 
-  cat("Stage 2: Fast pre-sampling via Laplace Approximation ...\n")
+  cat("Stage 2: Pre-sampling each candidate via Gibbs sampler...\n")
   presampled_betas <- list()
-  n <- nrow(X)
 
   for (name in names(candidates)) {
-    starting <- pre_optimized_states[[name]]
     params <- pre_optimized_params[[name]]
-    p <- length(starting$beta0)
-    if (is.null(starting$nu0) || is.null(starting$lambda0)) {
-      stop("Stage 2 requires final nu0 and lambda0 from eb_run_em_engine().")
-    }
-    sigmaSq_current <- eb_positive_finite(params$sigmaSq, 1e-16)
-    omega_current <- eb_positive_finite(params$omega, 1e-16)
-    raw_d <- omega_current * starting$nu0 / starting$lambda0
-    d_current <- pmax(ifelse(is.finite(raw_d), raw_d, .Machine$double.xmin),
-                      .Machine$double.xmin)
-    
-    if (woodbury && !diagX) {
-      XD <- sweep(X, 2, d_current, FUN = "*")
-      M <- XD %*% t(X)
-      diag(M) <- diag(M) + sigmaSq_current
-      M_inv <- eb_chol2inv_pd(M)
-      U <- matrix(rnorm(p * iter_selection, mean = 0, sd = sqrt(d_current)), nrow = p, ncol = iter_selection)
-      Delta <- matrix(rnorm(n * iter_selection, mean = 0, sd = 1), nrow = n, ncol = iter_selection)
-      Y_mat <- matrix(y, nrow = n, ncol = iter_selection)
-      RHS <- Y_mat - (X %*% U) - sqrt(sigmaSq_current) * Delta
-      W <- M_inv %*% RHS
-      beta_draws <- t(U + t(XD) %*% W)
-    } else {
-      if (diagX) {
-        beta_draws <- matrix(
-          rnorm(iter_selection * p, 
-                mean = rep(starting$beta0, each = iter_selection), 
-                sd = rep(sqrt(pmax(starting$v_beta, 0)), each = iter_selection)),
-          nrow = iter_selection, ncol = p
-        )
-      } else {
-        XtX <- crossprod(X)
-        precision_beta <- XtX / sigmaSq_current + diag(1 / d_current, p)
-        sigma_beta <- eb_chol2inv_pd(precision_beta)
-        beta_draws <- MASS::mvrnorm(n = iter_selection, mu = starting$beta0, Sigma = sigma_beta)
-      }
-    }
-    
-    presampled_betas[[name]] <- beta_draws
+    starting <- pre_optimized_states[[name]]
+    presamples <- eb_getsamples_emp(
+      num = iter_selection, X = X, y = y,
+      a = params$a, b = params$b,
+      omega = params$omega, sigmaSq = params$sigmaSq,
+      beta0 = starting$beta0, psi0 = starting$psi0,
+      zeta0 = starting$zeta0, burn = 0,
+      woodbury = woodbury, diagX = diagX
+    )
+    presampled_betas[[name]] <- presamples$beta
   }
 
   cat("Stage 3: Starting iterative model selection ...\n")
   model_names <- names(candidates)
-  prob_matrix <- matrix(NA, nrow = iter_selection, ncol = length(candidates))
+  prob_matrix <- matrix(NA_real_, nrow = iter_selection, ncol = length(candidates))
+  colnames(prob_matrix) <- model_names
   current_model_name <- sample(model_names, 1)
   current_beta <- presampled_betas[[current_model_name]][1, ]
 
-  for (j in seq_len(iter_selection)) {
+  iter_total <- iter_burnin_selection + iter_selection
+  for (j in seq_len(iter_total)) {
     log_weights <- sapply(model_names, function(name) {
       eb_calculate_marginal_loglik_beta(
         beta_vec = current_beta,
@@ -431,15 +346,21 @@ initialize_adaptive <- function(X, y,
       probs <- rep(1 / length(model_names), length(model_names))
     } else {
       weights <- exp(log_weights - max_log)
-      probs <- weights / sum(weights, na.rm = TRUE)
+      weight_sum <- sum(weights, na.rm = TRUE)
+      probs <- if (is.finite(weight_sum) && weight_sum > 0) {
+        weights / weight_sum
+      } else {
+        rep(1 / length(model_names), length(model_names))
+      }
     }
-    
+
     current_model_name <- sample(model_names, 1, prob = probs)
-    sample_row_idx <- sample(1:iter_selection, 1)
-    
+    sample_row_idx <- sample.int(iter_selection, 1)
     current_beta <- presampled_betas[[current_model_name]][sample_row_idx, ]
 
-    prob_matrix[j, ] <- probs
+    if (j > iter_burnin_selection) {
+      prob_matrix[j - iter_burnin_selection, ] <- probs
+    }
   }
 
   avg_probs <- colMeans(prob_matrix)
@@ -449,10 +370,11 @@ initialize_adaptive <- function(X, y,
   list(
     winning_params = pre_optimized_params[[winner_name]],
     winner_name = winner_name,
-    model_probabilities = avg_probs
+    model_probabilities = avg_probs,
+    pre_optimized_params = pre_optimized_params,
+    pre_optimized_trajectories = pre_optimized_trajectories
   )
 }
-
 
 eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
   n <- nrow(X)
@@ -461,29 +383,23 @@ eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
     cv_ridge <- glmnet::cv.glmnet(X, y, alpha = 0, intercept = FALSE)
     y_hat <- as.vector(predict(cv_ridge, s = "lambda.min", newx = X))
     sigmaSq_hat <- max(epsilon, var(as.vector(y) - y_hat, na.rm = TRUE))
-    
   } else if (option == "olasso") {
     ol_fit <- natural::olasso(X, y, intercept = FALSE)
     sigmaSq_hat <- max(epsilon, ol_fit$sig_obj_1)
-    
   } else {
     stop("Invalid option. Please choose 'ridge' or 'olasso'.")
   }
 
   y_sq_sum <- sum(y^2)
   trace_XX <- sum(X^2)
-  # From: 1/n * y'y = 1/n * trace(X'X) * omega + sigmaSq
-  # omega = (y'y - n * sigmaSq) / trace(X'X)
   numerator <- y_sq_sum - (n * sigmaSq_hat)
-  if (trace_XX <= 0 || numerator <= 0) {
-    omega_hat <- epsilon
+  omega_hat <- if (trace_XX <= 0 || numerator <= 0) {
+    epsilon
   } else {
-    omega_hat <- max(epsilon, numerator / trace_XX)
+    max(epsilon, numerator / trace_XX)
   }
-  return(list(sigmaSq = sigmaSq_hat, omega = omega_hat))
+  list(sigmaSq = sigmaSq_hat, omega = omega_hat)
 }
-
-
 
 #' Run Empirical Bayes Model Competition for TPB Prior Elicitation
 #'
@@ -491,11 +407,13 @@ eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
 #' @param y n*1 response vector
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for omega and sigmaSq.
+#'   The Gibbs E-step uses phi = omega * b / a.
 #' @param init_option Initialization method for missing omega/sigmaSq guesses, either "ridge" or "olasso".
 #' @param iter_selection Number of post-burn-in samples for model selection.
-#' @param omega_mc_samples Deprecated; retained for compatibility and ignored by the deterministic z-space Laplace update.
 #' @param woodbury Logical, use Woodbury identity in beta updates.
 #' @param candidates Candidate models and their initial a,b values.
+#' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
+#' @param iter_burnin_selection Burn-in iterations for the model indicator chain.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
 #' @param diagX Logical, assume diagonal X.
@@ -507,14 +425,16 @@ run_model_competition <- function(X, y,
                                   sigmaSq_init_guess = NULL,
                                   init_option = "ridge",
                                   iter_selection = 5000,
-                                  omega_mc_samples = 1000,
                                   woodbury = TRUE,
                                   candidates = list(
                                     hs = list(a = 0.5, b = 0.5),
-                                    sb = list(a = 1.0, b = 0.5),
-                                    normal_gamma = list(a = 0.5, b = 10.0),
-                                    studentt = list(a = 10.0, b = 0.5)
+                                    normal_gamma = list(a = 0.5, b = 20.0),
+                                    student_t = list(a = 20.0, b = 0.5),
+                                    normaml = list(a = 20.0, b = 20.0)
                                   ),
+                                  pre_opt_burnin = 200,
+                                  pre_opt_samples = 200,
+                                  iter_burnin_selection = 0,
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
                                   diagX = FALSE) {
@@ -539,9 +459,11 @@ run_model_competition <- function(X, y,
     sigmaSq_init_guess = sigmaSq_init_guess,
     iter_pre_opt = iter_pre_opt,
     iter_selection = iter_selection,
-    omega_mc_samples = omega_mc_samples,
     woodbury = woodbury,
     candidates = candidates,
+    pre_opt_burnin = pre_opt_burnin,
+    pre_opt_samples = pre_opt_samples,
+    iter_burnin_selection = iter_burnin_selection,
     delta1 = delta1, delta2 = delta2, delta3 = delta3,
     window_size = window_size,
     diagX = diagX

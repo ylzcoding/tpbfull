@@ -11,30 +11,43 @@ initialize_adaptive(
   sigmaSq_init_guess,
   iter_pre_opt,
   iter_selection,
-  omega_mc_samples,
   candidates,
   woodbury,
-  delta1,
-  delta2,
-  delta3,
-  window_size,
-  diagX
+  pre_opt_burnin = 200,
+  pre_opt_samples = 200,
+  iter_burnin_selection = 0,
+  update_a = FALSE,
+  update_b = FALSE,
+  update_omega = TRUE,
+  update_sigmaSq = TRUE,
+  delta1 = 1e-06,
+  delta2 = 0.001,
+  delta3 = 0.001,
+  window_size = 5,
+  diagX = FALSE
 )
 }
 \arguments{
 \item{X, y}{Model matrix and response vector.}
 
-\item{omega_init_guess, sigmaSq_init_guess}{Initial guesses for omega and sigmaSq.}
+\item{omega_init_guess, sigmaSq_init_guess}{Initial guesses for omega and sigmaSq.
+The Gibbs E-step uses phi = omega * b / a.}
 
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
 
-\item{omega_mc_samples}{Deprecated; retained for compatibility and ignored by the deterministic z-space Laplace update.}
-
 \item{candidates}{Candidate models and their initial a,b values.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
+
+\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
+
+\item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
+
+\item{update_a, update_b}{Logical, update TPB shape parameters during pre-optimization.}
+
+\item{update_omega, update_sigmaSq}{Logical, update omega and sigmaSq during pre-optimization.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 
