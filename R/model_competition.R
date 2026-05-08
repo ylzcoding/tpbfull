@@ -429,8 +429,7 @@ run_model_competition <- function(X, y,
                                   candidates = list(
                                     hs = list(a = 0.5, b = 0.5),
                                     normal_gamma = list(a = 0.5, b = 20.0),
-                                    student_t = list(a = 20.0, b = 0.5),
-                                    normaml = list(a = 20.0, b = 20.0)
+                                    student_t = list(a = 20.0, b = 0.5)
                                   ),
                                   pre_opt_burnin = 200,
                                   pre_opt_samples = 200,
