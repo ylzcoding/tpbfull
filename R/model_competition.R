@@ -40,16 +40,33 @@ eb_d_tpb <- function(beta_vec, a, b, phi) {
     return(rep(NA_real_, length(beta_vec)))
   }
 
+  tricomi_U_integral <- function(U_a, U_b, z) {
+    integrand <- function(t) {
+      exp(-z * t) * t^(U_a - 1) * (1 + t)^(U_b - U_a - 1)
+    }
+    integral_result <- tryCatch({
+      integrate(integrand, lower = 0, upper = Inf)$value
+    }, error = function(e) NA_real_)
+    integral_result / gamma(U_a)
+  }
+
   log_const <- lgamma(0.5 + b) + lgamma(a + b) -
     lgamma(a) - lgamma(b) - 0.5 * log(2 * pi * phi)
   U_a <- 0.5 + b
   U_b <- 1.5 - a
 
   vapply(beta_vec, function(beta_i) {
-    z_val <- max(beta_i^2 / (2 * phi), .Machine$double.xmin)
+    z_val <- beta_i^2 / (2 * phi)
+    if (!is.finite(z_val) || z_val < 0) {
+      return(NA_real_)
+    }
     U_val <- tryCatch({
       gsl::hyperg_U(U_a, U_b, z_val)
     }, error = function(e) NA_real_)
+
+    if (!is.finite(U_val) || U_val <= 0) {
+      U_val <- tricomi_U_integral(U_a, U_b, z_val)
+    }
 
     if (!is.finite(U_val) || U_val <= 0) {
       return(NA_real_)
@@ -168,9 +185,11 @@ eb_run_em_engine <- function(X, y,
   sigmaSq_vec <- c(eb_positive_finite(sigmaSq_init, 1e-16))
   beta_diff_vec <- numeric(0)
 
-  beta0 <- rnorm(p, mean = 0, sd = sqrt(omega_vec[1] * b_vec[1] / a_vec[1]))
-  psi0 <- rep(1, p)
-  zeta0 <- rep(1, p)
+  beta0 <- rnorm(p, mean = 0, sd = sqrt(sigmaSq_vec[1]))
+  nu0 <- rgamma(p, 1, 1)
+  lambda0 <- rgamma(p, 1, 1)
+  zeta0 <- 1 / pmax(a_vec[1] * nu0, 1e-16)
+  psi0 <- b_vec[1] * nu0 / pmax(a_vec[1] * lambda0, 1e-16)
   last_beta_hat <- NULL
 
   for (k in seq_len(max_iter)) {
