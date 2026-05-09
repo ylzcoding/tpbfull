@@ -17,10 +17,14 @@ tpb_full_pipeline(
   iter_pre_opt = 100,
   omega_init_guess = NULL,
   sigmaSq_init_guess = NULL,
-  init_option = "ridge",
   iter_selection = 5000,
   woodbury = TRUE,
   diagX = FALSE,
+  use_model_prior = TRUE,
+  sparsity_threshold = 0.1,
+  model_prior_method = c("complexity", "binomial"),
+  model_size_prior_alpha = 1,
+  model_size_prior_beta = 1,
   ...
 )
 }
@@ -45,13 +49,22 @@ tpb_full_pipeline(
 
 \item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for EB omega and sigmaSq}
 
-\item{init_option}{Initialization method for missing EB omega/sigmaSq guesses, either "ridge" or "olasso"}
-
 \item{iter_selection}{Number of post-burn-in samples for model selection}
 
 \item{woodbury}{Logical, use Woodbury identity in both model competition and full Gibbs sampling}
 
 \item{diagX}{Logical, assume diagonal X}
+
+\item{use_model_prior}{Logical, add the organic-lasso regime prior in model competition}
+
+\item{sparsity_threshold}{Active-proportion threshold for sparse vs dense regimes}
+
+\item{model_prior_method}{"complexity" penalizes regime mismatch on a log(p)
+model-complexity scale; "binomial" uses the organic-lasso model size to
+induce a binomial regime prior.}
+
+\item{model_size_prior_alpha, model_size_prior_beta}{Beta smoothing constants for
+the organic-lasso inclusion probability in the size-based regime prior.}
 
 \item{...}{Additional arguments passed to fullGibbs()}
 }

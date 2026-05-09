@@ -10,14 +10,18 @@ run_model_competition(
   iter_pre_opt = 100,
   omega_init_guess = NULL,
   sigmaSq_init_guess = NULL,
-  init_option = "ridge",
   iter_selection = 5000,
   woodbury = TRUE,
-  candidates = list(hs = list(a = 0.51, b = 0.5), sb = list(a = 1, b = 0.5), normal_gamma
-    = list(a = 0.51, b = 10), studentt = list(a = 10, b = 0.5)),
+  candidates = list(hs = list(a = 0.5, b = 0.5), normal_gamma = list(a = 1, b =
+    10), ridge = list(a = 10, b = 10)),
   pre_opt_burnin = 200,
   pre_opt_samples = 200,
   iter_burnin_selection = 0,
+  use_model_prior = TRUE,
+  sparsity_threshold = 0.1,
+  model_prior_method = c("complexity", "binomial"),
+  model_size_prior_alpha = 1,
+  model_size_prior_beta = 1,
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
@@ -35,8 +39,6 @@ run_model_competition(
 \item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for omega and sigmaSq.
 The Gibbs E-step uses phi = omega * b / a.}
 
-\item{init_option}{Initialization method for missing omega/sigmaSq guesses, either "ridge" or "olasso".}
-
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
@@ -46,6 +48,17 @@ The Gibbs E-step uses phi = omega * b / a.}
 \item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
 
 \item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
+
+\item{use_model_prior}{Logical, add the organic-lasso regime prior to model weights.}
+
+\item{sparsity_threshold}{Active-proportion threshold for sparse vs dense regimes.}
+
+\item{model_prior_method}{"complexity" penalizes regime mismatch on a log(p)
+model-complexity scale; "binomial" uses the organic-lasso model size to
+induce a binomial regime prior.}
+
+\item{model_size_prior_alpha, model_size_prior_beta}{Beta smoothing constants for
+the organic-lasso inclusion probability in the size-based regime prior.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 

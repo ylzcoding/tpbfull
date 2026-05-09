@@ -47,7 +47,7 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
     return(rep(NaN, p))
   })
 
-  bad_u <- !is.finite(U_vals) | U_vals <= 0
+  bad_u <- is.na(U_vals) | !is.finite(U_vals) | U_vals <= 0
   if (any(bad_u)) {
     U_vals[bad_u] <- vapply(z[bad_u], function(z_val) {
       if (!is.finite(z_val) || z_val < 0) {
@@ -58,7 +58,7 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
   }
 
   # if U <= 0，just return -inf to reject this proposal
-  if (any(is.nan(U_vals)) || any(U_vals <= 0) || any(is.infinite(U_vals))) {
+  if (any(is.na(U_vals)) || any(!is.finite(U_vals)) || any(U_vals <= 0)) {
     return(list(log_posterior = -Inf, log_lik = -Inf))
   }
 

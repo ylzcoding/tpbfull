@@ -10,10 +10,16 @@
 #' @param thinning Integer, thinning interval for saved posterior samples
 #' @param iter_pre_opt Iterations for the model competition pre-optimization EM stage for each candidate
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for EB omega and sigmaSq
-#' @param init_option Initialization method for missing EB omega/sigmaSq guesses, either "ridge" or "olasso"
 #' @param iter_selection Number of post-burn-in samples for model selection
 #' @param woodbury Logical, use Woodbury identity in both model competition and full Gibbs sampling
 #' @param diagX Logical, assume diagonal X
+#' @param use_model_prior Logical, add the organic-lasso regime prior in model competition
+#' @param sparsity_threshold Active-proportion threshold for sparse vs dense regimes
+#' @param model_prior_method "complexity" penalizes regime mismatch on a log(p)
+#'   model-complexity scale; "binomial" uses the organic-lasso model size to
+#'   induce a binomial regime prior.
+#' @param model_size_prior_alpha,model_size_prior_beta Beta smoothing constants for
+#'   the organic-lasso inclusion probability in the size-based regime prior.
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -34,12 +40,16 @@ tpb_full_pipeline <- function(X, y,
                               iter_pre_opt = 100,
                               omega_init_guess = NULL,
                               sigmaSq_init_guess = NULL,
-                              init_option = "ridge",
                               iter_selection = 5000,
                               woodbury = TRUE,
                               diagX = FALSE,
+                              use_model_prior = TRUE,
+                              sparsity_threshold = 0.10,
+                              model_prior_method = c("complexity", "binomial"),
+                              model_size_prior_alpha = 1,
+                              model_size_prior_beta = 1,
                               ...) {
-
+  model_prior_method <- match.arg(model_prior_method)
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -62,10 +72,14 @@ tpb_full_pipeline <- function(X, y,
       iter_pre_opt = iter_pre_opt,
       omega_init_guess = omega_init_guess,
       sigmaSq_init_guess = sigmaSq_init_guess,
-      init_option = init_option,
       iter_selection = iter_selection,
       woodbury = woodbury,
-      diagX = diagX
+      diagX = diagX,
+      use_model_prior = use_model_prior,
+      sparsity_threshold = sparsity_threshold,
+      model_prior_method = model_prior_method,
+      model_size_prior_alpha = model_size_prior_alpha,
+      model_size_prior_beta = model_size_prior_beta
     )
     winning_modes <- list(
       a = competition_result$winner$a,
@@ -189,7 +203,8 @@ tpb_full_pipeline <- function(X, y,
       enabled = isTRUE(auto_find),
       winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
       winning_modes = winning_modes,
-      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities
+      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
+      model_prior = if (is.null(competition_result)) NULL else competition_result$model_prior
     )
   )
 }
