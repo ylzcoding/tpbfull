@@ -27,7 +27,7 @@ tpb_full_pipeline <- function(X, y,
                                                   s_b = 1.5, r_b = 1,
                                                   scale_a = 1,
                                                   scale_b = 1,
-                                                  scale_phi = 1),
+                                                  scale_phi = 0.1),
                               num_iter = 100000,
                               num_warmup = 25000,
                               thinning = 1,
@@ -72,7 +72,7 @@ tpb_full_pipeline <- function(X, y,
       b = competition_result$winner$b
     )
     shape_val <- 1.5
-    rate_a <- shape_val / winning_modes$a
+    rate_a <- shape_val / winning_modes$a 
     rate_b <- shape_val / winning_modes$b
     
     final_hyper_params <- modifyList(

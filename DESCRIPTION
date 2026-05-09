@@ -13,9 +13,7 @@ RoxygenNote: 7.3.3
 Imports:
     bzinb,
     coda,
-    glmnet,
     gsl,
     mvtnorm,
+    natural,
     statmod
-Suggests:
-    natural

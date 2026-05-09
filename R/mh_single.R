@@ -100,4 +100,3 @@ run_marginal_mh_tri_a_b_phi <- function(beta_vec, current_a, current_b, current_
     return(list(a = current_a, b = current_b, phi = current_phi, accepted = FALSE, log_lik = old_eval$log_lik, total_logpost = old_eval$log_posterior))
   }
 }
-

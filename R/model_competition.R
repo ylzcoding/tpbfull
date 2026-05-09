@@ -18,6 +18,49 @@ eb_isConverged_hyper <- function(..., delta1, delta2, window_size = 3) {
   max(vapply(vecs, rel_err, numeric(1)), na.rm = TRUE) < delta2
 }
 
+eb_olasso_active_prop <- function(ol_fit, epsilon = 1e-8) {
+  if (is.null(ol_fit) || is.null(ol_fit$beta_1)) {
+    return(NA_real_)
+  }
+  mean(abs(ol_fit$beta_1) > epsilon)
+}
+
+eb_candidate_model_log_prior <- function(X, y, candidates,
+                                         active_prop = NULL,
+                                         sparsity_threshold = 0.10,
+                                         prior_strength = 40) {
+  if (is.null(active_prop) || !is.finite(active_prop)) {
+    active_prop <- tryCatch({
+      ol_fit <- natural::olasso(X, y, intercept = FALSE)
+      eb_olasso_active_prop(ol_fit)
+    }, error = function(e) NA_real_)
+  }
+  log_prior <- stats::setNames(rep(0, length(candidates)), names(candidates))
+  if (!is.finite(active_prop)) {
+    return(list(log_prior = log_prior, active_prop = active_prop,
+                source = "olasso", sparsity_threshold = sparsity_threshold))
+  }
+
+  candidate_ab <- do.call(rbind, lapply(candidates, function(x) {
+    c(a = x$a, b = x$b)
+  }))
+  candidate_names <- rownames(candidate_ab)
+  is_hs <- candidate_names == "hs" |
+    (candidate_ab[, "a"] <= 0.5 & candidate_ab[, "b"] <= 0.5)
+  is_dense <- candidate_names %in% c("normal_gamma", "ridge") |
+    candidate_ab[, "b"] >= 5 |
+    (candidate_ab[, "a"] >= 5 & candidate_ab[, "b"] >= 5)
+
+  if (active_prop < sparsity_threshold) {
+    log_prior[is_hs] <- prior_strength
+  } else {
+    log_prior[is_dense] <- prior_strength
+  }
+
+  list(log_prior = log_prior, active_prop = active_prop,
+       source = "olasso", sparsity_threshold = sparsity_threshold)
+}
+
 eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
   a <- model_params$a
   b <- model_params$b
@@ -282,6 +325,7 @@ initialize_adaptive <- function(X, y,
                                 iter_pre_opt,
                                 iter_selection,
                                 candidates, woodbury,
+                                model_log_prior = NULL,
                                 pre_opt_burnin = 500,
                                 pre_opt_samples = 1000,
                                 iter_burnin_selection = 0,
@@ -346,6 +390,12 @@ initialize_adaptive <- function(X, y,
 
   cat("Stage 3: Starting iterative model selection ...\n")
   model_names <- names(candidates)
+  if (is.null(model_log_prior)) {
+    model_log_prior <- stats::setNames(rep(0, length(model_names)), model_names)
+  } else {
+    model_log_prior <- model_log_prior[model_names]
+    model_log_prior[!is.finite(model_log_prior)] <- 0
+  }
   prob_matrix <- matrix(NA_real_, nrow = iter_selection, ncol = length(candidates))
   colnames(prob_matrix) <- model_names
   current_model_name <- sample(model_names, 1)
@@ -357,7 +407,7 @@ initialize_adaptive <- function(X, y,
       eb_calculate_marginal_loglik_beta(
         beta_vec = current_beta,
         model_params = pre_optimized_params[[name]]
-      )
+      ) + model_log_prior[[name]]
     })
 
     max_log <- max(log_weights, na.rm = TRUE)
@@ -395,18 +445,15 @@ initialize_adaptive <- function(X, y,
   )
 }
 
-eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
+eb_initial_values <- function(X, y, option = "olasso", epsilon = 1e-6) {
   n <- nrow(X)
 
-  if (option == "ridge") {
-    cv_ridge <- glmnet::cv.glmnet(X, y, alpha = 0, intercept = FALSE)
-    y_hat <- as.vector(predict(cv_ridge, s = "lambda.min", newx = X))
-    sigmaSq_hat <- max(epsilon, var(as.vector(y) - y_hat, na.rm = TRUE))
-  } else if (option == "olasso") {
+  if (option == "olasso") {
     ol_fit <- natural::olasso(X, y, intercept = FALSE)
     sigmaSq_hat <- max(epsilon, ol_fit$sig_obj_1)
+    active_prop <- eb_olasso_active_prop(ol_fit)
   } else {
-    stop("Invalid option. Please choose 'ridge' or 'olasso'.")
+    stop("Invalid option. Please choose 'olasso'.")
   }
 
   y_sq_sum <- sum(y^2)
@@ -417,7 +464,8 @@ eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
   } else {
     max(epsilon, numerator / trace_XX)
   }
-  list(sigmaSq = sigmaSq_hat, omega = omega_hat)
+  list(sigmaSq = sigmaSq_hat, omega = omega_hat,
+       active_prop = active_prop, init_option = option)
 }
 
 #' Run Empirical Bayes Model Competition for TPB Prior Elicitation
@@ -427,7 +475,7 @@ eb_initial_values <- function(X, y, option = "ridge", epsilon = 1e-6) {
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for omega and sigmaSq.
 #'   The Gibbs E-step uses phi = omega * b / a.
-#' @param init_option Initialization method for missing omega/sigmaSq guesses, either "ridge" or "olasso".
+#' @param init_option Initialization method for missing omega/sigmaSq guesses. Currently only "olasso".
 #' @param iter_selection Number of post-burn-in samples for model selection.
 #' @param woodbury Logical, use Woodbury identity in beta updates.
 #' @param candidates Candidate models and their initial a,b values.
@@ -442,32 +490,53 @@ run_model_competition <- function(X, y,
                                   iter_pre_opt = 100,
                                   omega_init_guess = NULL,
                                   sigmaSq_init_guess = NULL,
-                                  init_option = "ridge",
+                                  init_option = "olasso",
                                   iter_selection = 5000,
                                   woodbury = TRUE,
                                   candidates = list(
                                     hs = list(a = 0.5, b = 0.5),
-                                    normal_gamma = list(a = 0.5, b = sqrt(1000.0)),
-                                    student_t = list(a = sqrt(1000.0), b = 1.0)
+                                    normal_gamma = list(a = 0.5, b = 20.0),
+                                    ridge = list(a = 10.0, b = 10.0)
                                   ),
                                   pre_opt_burnin = 200,
                                   pre_opt_samples = 200,
                                   iter_burnin_selection = 0,
+                                  use_model_prior = TRUE,
+                                  sparsity_threshold = 0.10,
+                                  model_prior_strength = 40,
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
                                   diagX = FALSE) {
-  if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess)) {
-    initial_values <- eb_initial_values(
-      X = X,
-      y = y,
-      option = init_option
-    )
+  initial_values <- NULL
+  active_prop <- NA_real_
+  if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess) ||
+      isTRUE(use_model_prior)) {
+    initial_values <- eb_initial_values(X = X, y = y, option = init_option)
+    active_prop <- initial_values$active_prop
     if (is.null(omega_init_guess)) {
       omega_init_guess <- initial_values$omega
     }
     if (is.null(sigmaSq_init_guess)) {
       sigmaSq_init_guess <- initial_values$sigmaSq
     }
+  }
+
+  prior_info <- if (isTRUE(use_model_prior)) {
+    eb_candidate_model_log_prior(
+      X = X,
+      y = y,
+      candidates = candidates,
+      active_prop = active_prop,
+      sparsity_threshold = sparsity_threshold,
+      prior_strength = model_prior_strength
+    )
+  } else {
+    list(
+      log_prior = stats::setNames(rep(0, length(candidates)), names(candidates)),
+      active_prop = NA_real_,
+      source = NA_character_,
+      sparsity_threshold = sparsity_threshold
+    )
   }
 
   adaptive_result <- initialize_adaptive(
@@ -479,6 +548,7 @@ run_model_competition <- function(X, y,
     iter_selection = iter_selection,
     woodbury = woodbury,
     candidates = candidates,
+    model_log_prior = prior_info$log_prior,
     pre_opt_burnin = pre_opt_burnin,
     pre_opt_samples = pre_opt_samples,
     iter_burnin_selection = iter_burnin_selection,
@@ -490,6 +560,7 @@ run_model_competition <- function(X, y,
   list(
     winner = adaptive_result$winning_params,
     winner_name = adaptive_result$winner_name,
-    raw = adaptive_result
+    raw = adaptive_result,
+    model_prior = prior_info
   )
 }

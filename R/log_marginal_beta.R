@@ -31,11 +31,31 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
   s <- 1.5 - a
   z <- (beta_vec^2) / (2 * phi)
 
+  tricomi_U_integral <- function(U_a, U_b, z_val) {
+    integrand <- function(t) {
+      exp(-z_val * t) * t^(U_a - 1) * (1 + t)^(U_b - U_a - 1)
+    }
+    integral_result <- tryCatch({
+      integrate(integrand, lower = 0, upper = Inf)$value
+    }, error = function(e) NA_real_)
+    integral_result / gamma(U_a)
+  }
+
   U_vals <- tryCatch({
     gsl::hyperg_U(r, s, z)
   }, error = function(e) {
     return(rep(NaN, p))
   })
+
+  bad_u <- !is.finite(U_vals) | U_vals <= 0
+  if (any(bad_u)) {
+    U_vals[bad_u] <- vapply(z[bad_u], function(z_val) {
+      if (!is.finite(z_val) || z_val < 0) {
+        return(NA_real_)
+      }
+      tricomi_U_integral(r, s, z_val)
+    }, numeric(1))
+  }
 
   # if U <= 0，just return -inf to reject this proposal
   if (any(is.nan(U_vals)) || any(U_vals <= 0) || any(is.infinite(U_vals))) {
