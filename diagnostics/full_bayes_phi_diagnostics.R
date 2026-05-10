@@ -78,7 +78,8 @@ run_phi_diagnostics <- function(seed = 1,
                                 num_iter = 2000,
                                 num_warmup = 1000,
                                 thinning = 1,
-                                proposal_type = "all_adaptive",
+                                proposal_type = "adaptive",
+                                max_log_proposal_sd = 0.25,
                                 woodbury = TRUE) {
   tpb <- load_local_tpbfull(".")
   data_gen <- sparse_data_gen(
@@ -133,6 +134,7 @@ run_phi_diagnostics <- function(seed = 1,
         iter_selection = 100,
         woodbury = woodbury,
         proposal_type = proposal_type,
+        max_log_proposal_sd = max_log_proposal_sd,
         model_prior_method = "complexity"
       )
       row <- summarize_scalars(fit)

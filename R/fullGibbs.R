@@ -9,13 +9,14 @@
 #' @param thin Integer, thinning interval for saved posterior samples
 #' @param woodbury Logical, use Woodbury identity in beta update
 #' @param diagX Logical, assume diagonal X
-#' @param proposal_type String, "separate" or "bi_fixed" or "bi_adaptive" or "all_adaptive"
+#' @param proposal_type String, "separate" or "adaptive".
 #' @param mh_step_a Step size for the a update under the "separate" mode.
 #' @param mh_step_b Step size for the b update under the "separate" mode.
 #' @param mh_step_phi Step size for the phi update under the "separate" mode.
 #' @param adapt_block_size Integer, number of iterations per adaptation block
 #' @param r_opt Numeric, target acceptance rate for adaptive MH (default 0.3)
-#' @param cov_matrix Matrix, 2x2 covariance matrix for bi_fixed proposals
+#' @param max_log_proposal_sd Maximum marginal proposal standard deviation on
+#'   the log scale for adaptive MH covariance regularization.
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)
 #' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
 #' @export
@@ -23,7 +24,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       woodbury = TRUE, diagX = FALSE, proposal_type = "separate",
                       mh_step_a = 0.1, mh_step_b = 0.1, mh_step_phi = 0.1,
                       adapt_block_size = 100, r_opt = 0.3,
-                      cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
+                      max_log_proposal_sd = 0.25,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
                                           scale_a = 1, scale_b = 1, scale_phi = 0.1)) {
@@ -40,6 +41,26 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   )
   hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))
   hyper_params$prior_type_b <- match.arg(hyper_params$prior_type_b, c("gamma", "hcauchy"))
+  proposal_type <- match.arg(proposal_type, c("separate", "adaptive"))
+
+  regularize_log_proposal_cov <- function(cov_mat) {
+    cov_mat <- as.matrix(cov_mat)
+    cov_mat <- (cov_mat + t(cov_mat)) / 2
+    diag(cov_mat) <- pmax(diag(cov_mat), 1e-8)
+
+    current_max_sd <- sqrt(max(diag(cov_mat)))
+    if (is.finite(current_max_sd) && current_max_sd > max_log_proposal_sd) {
+      cov_mat <- cov_mat * (max_log_proposal_sd / current_max_sd)^2
+      diag(cov_mat) <- pmax(diag(cov_mat), 1e-8)
+    }
+
+    eig <- eigen(cov_mat, symmetric = TRUE)
+    if (min(eig$values) <= 1e-8) {
+      cov_mat <- eig$vectors %*% diag(pmax(eig$values, 1e-8)) %*% t(eig$vectors)
+      cov_mat <- (cov_mat + t(cov_mat)) / 2
+    }
+    cov_mat
+  }
 
   # Initialize Parameters (Starting Values)
   sigmaSq <- 1 / rgamma(1, shape = 1.5, rate = 0.5) # var(y)
@@ -80,23 +101,11 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   accept_count_b <- 0
   accept_count_phi <- 0
 
-  if (proposal_type == "bi_adaptive") {
-    d <- 2
-    scale_factor <- (2.4^2) / d
-    # emp_cov <- cov_matrix / scale_factor
-    emp_cov <- diag(d) * 0.01
-    current_proposal_cov <- scale_factor * emp_cov
-
-    block_samples <- matrix(0, nrow = adapt_block_size, ncol = d)
-    block_accepts <- 0
-    block_idx <- 1
-  }
-
-  if (proposal_type == "all_adaptive") {
+  if (proposal_type == "adaptive") {
     d <- 3
     scale_factor <- (2.4^2) / d
     emp_cov <- diag(d) * 0.01
-    current_proposal_cov <- scale_factor * emp_cov
+    current_proposal_cov <- regularize_log_proposal_cov(scale_factor * emp_cov)
 
     block_samples <- matrix(0, nrow = adapt_block_size, ncol = d)
     block_accepts <- 0
@@ -158,60 +167,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       phi <- phi_new$value
       beta_loglik <- phi_new$log_lik
       total_logpost <- phi_new$total_logpost
-    } else if (proposal_type %in% c("bi_fixed", "bi_adaptive")) {
-      prop_cov <- if(proposal_type == "bi_fixed") cov_matrix else current_proposal_cov
-      a_phi_new <- run_marginal_mh_bi_a_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
-                                            s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                            s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                            scale_phi = hyper_params$scale_phi,
-                                            prior_type_a = hyper_params$prior_type_a,
-                                            prior_type_b = hyper_params$prior_type_b,
-                                            scale_a = hyper_params$scale_a,
-                                            scale_b = hyper_params$scale_b,
-                                            cov_matrix = prop_cov)
-      if (a_phi_new$accepted) {
-        accept_count_a <- accept_count_a + 1
-        accept_count_phi <- accept_count_phi + 1
-      }
-      a   <- a_phi_new$a
-      phi <- a_phi_new$phi
-      beta_loglik <- a_phi_new$log_lik
-      total_logpost <- a_phi_new$total_logpost
-
-      if (proposal_type == "bi_adaptive" && iter <= num_burnin) {
-        block_samples[block_idx, ] <- c(log(a), log(phi))
-        if (a_phi_new$accepted) {block_accepts <- block_accepts + 1}
-
-        if (block_idx == adapt_block_size) {
-          current_r <- block_accepts / adapt_block_size
-          # learning rate = 0.1
-          log_scale <- log(scale_factor) + 0.1 * (current_r - r_opt)
-          scale_factor <- exp(log_scale)
-          emp_cov <- cov(block_samples) + diag(2) * 1e-6
-          current_proposal_cov <- scale_factor * emp_cov
-
-          block_idx <- 1
-          block_accepts <- 0
-        } else {
-          block_idx <- block_idx + 1
-        }
-      }
-
-      b_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "b",
-                                   current_a = a, current_b = b, current_phi = phi,
-                                   s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                   s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi,
-                                   prior_type_a = hyper_params$prior_type_a,
-                                   prior_type_b = hyper_params$prior_type_b,
-                                   scale_a = hyper_params$scale_a,
-                                   scale_b = hyper_params$scale_b,
-                                   mh_step = mh_step_b)
-      if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
-      b <- b_new$value
-      beta_loglik <- b_new$log_lik
-      total_logpost <- b_new$total_logpost
-    } else if (proposal_type == "all_adaptive") {
+    } else if (proposal_type == "adaptive") {
       a_b_phi_new <- run_marginal_mh_tri_a_b_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
                                                  s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
                                                  s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
@@ -241,7 +197,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
           log_scale <- log(scale_factor) + 0.1 * (current_r - r_opt)
           scale_factor <- exp(log_scale)
           emp_cov <- cov(block_samples) + diag(3) * 1e-6
-          current_proposal_cov <- scale_factor * emp_cov
+          current_proposal_cov <- regularize_log_proposal_cov(scale_factor * emp_cov)
 
           block_idx <- 1
           block_accepts <- 0
@@ -250,7 +206,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
         }
       }
     } else {
-      stop("Invalid proposal_type! Choose 'separate', 'bi_fixed', 'bi_adaptive', or 'all_adaptive'.")
+      stop("Invalid proposal_type! Choose 'separate' or 'adaptive'.")
     }
 
     if (iter > num_burnin) {
@@ -290,7 +246,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     ),
     hyper_params = hyper_params
   )
-  if (proposal_type %in% c("bi_adaptive", "all_adaptive")) {
+  if (proposal_type == "adaptive") {
     result$final_proposal_cov <- current_proposal_cov
     result$final_scale_factor <- scale_factor
   }

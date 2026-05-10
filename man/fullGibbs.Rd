@@ -18,7 +18,7 @@ fullGibbs(
   mh_step_phi = 0.1,
   adapt_block_size = 100,
   r_opt = 0.3,
-  cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
+  max_log_proposal_sd = 0.25,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
     s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 0.1)
 )
@@ -38,7 +38,8 @@ fullGibbs(
 
 \item{diagX}{Logical, assume diagonal X}
 
-\item{proposal_type}{String, "separate" or "bi_fixed" or "bi_adaptive" or "all_adaptive"}
+\item{proposal_type}{String, "separate" or "adaptive". The legacy value
+"all_adaptive" is accepted as an alias for "adaptive".}
 
 \item{mh_step_a}{Step size for the a update under the "separate" mode.}
 
@@ -50,7 +51,8 @@ fullGibbs(
 
 \item{r_opt}{Numeric, target acceptance rate for adaptive MH (default 0.3)}
 
-\item{cov_matrix}{Matrix, 2x2 covariance matrix for bi_fixed proposals}
+\item{max_log_proposal_sd}{Maximum marginal proposal standard deviation on
+the log scale for adaptive MH covariance regularization.}
 
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)}
 }
