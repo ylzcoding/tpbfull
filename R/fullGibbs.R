@@ -26,7 +26,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
-                                          scale_a = 1, scale_b = 1, scale_phi = 1)) {
+                                          scale_a = 1, scale_b = 1, scale_phi = 0.1)) {
 
   n <- nrow(X)
   p <- ncol(X)
@@ -35,7 +35,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
-         scale_a = 1, scale_b = 1, scale_phi = 1),
+         scale_a = 1, scale_b = 1, scale_phi = 0.1),
     hyper_params
   )
   hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))

@@ -20,7 +20,7 @@ fullGibbs(
   r_opt = 0.3,
   cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1)
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 0.1)
 )
 }
 \arguments{

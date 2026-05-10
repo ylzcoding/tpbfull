@@ -10,7 +10,7 @@ tpb_full_pipeline(
   num_chains = 4,
   auto_find = TRUE,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1),
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 0.1),
   num_iter = 1e+05,
   num_warmup = 25000,
   thinning = 1,
