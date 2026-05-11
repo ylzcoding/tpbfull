@@ -1,0 +1,13 @@
+"target","n_rep","sparse_rate","dense_rate","target_rate","winners","case","rho","ridge"
+"mixed",10,0.1,0.9,NA,"hs:1;normal_gamma:9","p50_k15",0.4,5
+"dense",10,0,1,1,"normal_gamma:3;ridge:7","p50_k25",0.4,5
+"dense",10,0,1,1,"ridge:10","p50_k35",0.4,5
+"mixed",10,0.1,0.9,NA,"hs:1;normal_gamma:6;ridge:3","p50_k15",0.8,5
+"dense",10,0,1,1,"normal_gamma:3;ridge:7","p50_k25",0.8,5
+"dense",10,0,1,1,"ridge:10","p50_k35",0.8,5
+"mixed",10,0,1,NA,"normal_gamma:10","p50_k15",0.4,10
+"dense",10,0,1,1,"normal_gamma:1;ridge:9","p50_k25",0.4,10
+"dense",10,0,1,1,"ridge:10","p50_k35",0.4,10
+"mixed",10,0,1,NA,"normal_gamma:9;ridge:1","p50_k15",0.8,10
+"dense",10,0,1,1,"normal_gamma:5;ridge:5","p50_k25",0.8,10
+"dense",10,0,1,1,"normal_gamma:1;ridge:9","p50_k35",0.8,10
