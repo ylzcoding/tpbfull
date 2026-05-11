@@ -15,11 +15,16 @@
 #' @param diagX Logical, assume diagonal X
 #' @param use_model_prior Logical, add the organic-lasso regime prior in model competition
 #' @param sparsity_threshold Active-proportion threshold for sparse vs dense regimes
-#' @param model_prior_method "complexity" penalizes regime mismatch on a log(p)
-#'   model-complexity scale; "binomial" uses the organic-lasso model size to
-#'   induce a binomial regime prior.
+#' @param selection_score Score used in stochastic model competition.
+#'   "data_likelihood" uses the Gaussian data likelihood evaluated at the
+#'   current beta draw; "beta_prior" is the original marginal TPB beta density.
+#' @param model_prior_method "binomial" uses the organic-lasso model size to
+#'   induce a smooth binomial regime prior; "complexity" penalizes regime
+#'   mismatch on a log(p) model-complexity scale.
 #' @param model_size_prior_alpha,model_size_prior_beta Beta smoothing constants for
 #'   the organic-lasso inclusion probability in the size-based regime prior.
+#' @param winner_prior_center Whether the winning a,b values are treated as
+#'   gamma prior means or modes in the fully Bayesian sampler.
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -44,12 +49,16 @@ tpb_full_pipeline <- function(X, y,
                               woodbury = TRUE,
                               diagX = FALSE,
                               use_model_prior = TRUE,
-                              sparsity_threshold = 0.10,
-                              model_prior_method = c("complexity", "binomial"),
-                              model_size_prior_alpha = 1,
-                              model_size_prior_beta = 1,
+                              sparsity_threshold = 0.05,
+                              selection_score = c("data_likelihood", "beta_prior"),
+                              model_prior_method = c("binomial", "complexity"),
+                              model_size_prior_alpha = 0.5,
+                              model_size_prior_beta = 0.5,
+                              winner_prior_center = c("mean", "mode"),
                               ...) {
+  selection_score <- match.arg(selection_score)
   model_prior_method <- match.arg(model_prior_method)
+  winner_prior_center <- match.arg(winner_prior_center)
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -77,6 +86,7 @@ tpb_full_pipeline <- function(X, y,
       diagX = diagX,
       use_model_prior = use_model_prior,
       sparsity_threshold = sparsity_threshold,
+      selection_score = selection_score,
       model_prior_method = model_prior_method,
       model_size_prior_alpha = model_size_prior_alpha,
       model_size_prior_beta = model_size_prior_beta
@@ -86,8 +96,13 @@ tpb_full_pipeline <- function(X, y,
       b = competition_result$winner$b
     )
     shape_val <- 1.5
-    rate_a <- shape_val / winning_modes$a 
-    rate_b <- shape_val / winning_modes$b
+    if (winner_prior_center == "mean") {
+      rate_a <- shape_val / winning_modes$a
+      rate_b <- shape_val / winning_modes$b
+    } else {
+      rate_a <- (shape_val - 1) / winning_modes$a
+      rate_b <- (shape_val - 1) / winning_modes$b
+    }
     
     final_hyper_params <- modifyList(
       final_hyper_params,
@@ -204,6 +219,8 @@ tpb_full_pipeline <- function(X, y,
       winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
       winning_modes = winning_modes,
       model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
+      selection_score = if (is.null(competition_result)) NULL else competition_result$selection_score,
+      winner_prior_center = winner_prior_center,
       model_prior = if (is.null(competition_result)) NULL else competition_result$model_prior
     )
   )

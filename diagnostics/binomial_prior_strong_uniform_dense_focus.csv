@@ -1,0 +1,7 @@
+"target","n","correct_rate","active_mean","active_min","active_max","winners","case","candidate_set","threshold","sparsity_reference","screening_method","alpha","beta","selection_score"
+"dense",20,1,8.75,5,12,"normal_gamma:8;ridge:12","strong_dense50_uniform","ridge5",0.05,"p","olasso",0.5,0.5,"data_likelihood"
+"dense",20,1,8.75,5,12,"normal_gamma:8;ridge:12","strong_dense50_uniform","ridge5",0.055,"p","olasso",0.5,0.5,"data_likelihood"
+"dense",20,1,8.75,5,12,"normal_gamma:8;ridge:12","strong_dense50_uniform","ridge5",0.06,"p","olasso",0.5,0.5,"data_likelihood"
+"dense",20,0.65,11.65,7,17,"hs:7;normal_gamma:8;ridge:5","strong_dense200_uniform","ridge5",0.05,"p","olasso",0.5,0.5,"data_likelihood"
+"dense",20,0.45,11.65,7,17,"hs:11;normal_gamma:6;ridge:3","strong_dense200_uniform","ridge5",0.055,"p","olasso",0.5,0.5,"data_likelihood"
+"dense",20,0.3,11.65,7,17,"hs:14;normal_gamma:5;ridge:1","strong_dense200_uniform","ridge5",0.06,"p","olasso",0.5,0.5,"data_likelihood"
