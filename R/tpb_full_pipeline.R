@@ -9,22 +9,15 @@
 #' @param num_warmup Integer, total number of warm-up iterations across all chains
 #' @param thinning Integer, thinning interval for saved posterior samples
 #' @param iter_pre_opt Iterations for the model competition pre-optimization EM stage for each candidate
+#' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for EB omega and sigmaSq
 #' @param iter_selection Number of post-burn-in samples for model selection
 #' @param woodbury Logical, use Woodbury identity in both model competition and full Gibbs sampling
 #' @param diagX Logical, assume diagonal X
-#' @param use_model_prior Logical, add the organic-lasso regime prior in model competition
-#' @param sparsity_threshold Active-proportion threshold for sparse vs dense regimes
 #' @param selection_score Score used in stochastic model competition.
-#'   "data_likelihood" uses the Gaussian data likelihood evaluated at the
-#'   current beta draw; "beta_prior" is the original marginal TPB beta density.
-#' @param model_prior_method "binomial" uses the organic-lasso model size to
-#'   induce a smooth binomial regime prior; "complexity" penalizes regime
-#'   mismatch on a log(p) model-complexity scale.
-#' @param model_size_prior_alpha,model_size_prior_beta Beta smoothing constants for
-#'   the organic-lasso inclusion probability in the size-based regime prior.
-#' @param winner_prior_center Whether the winning a,b values are treated as
-#'   gamma prior means or modes in the fully Bayesian sampler.
+#'   "beta_prior" is the original marginal TPB beta density;
+#'   "posterior_kernel" is the unnormalized beta posterior kernel,
+#'   i.e. Gaussian likelihood plus marginal TPB beta density.
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -43,22 +36,17 @@ tpb_full_pipeline <- function(X, y,
                               num_warmup = 25000,
                               thinning = 1,
                               iter_pre_opt = 100,
+                              pre_opt_burnin = 200,
+                              pre_opt_samples = 200,
                               omega_init_guess = NULL,
                               sigmaSq_init_guess = NULL,
                               iter_selection = 5000,
                               woodbury = TRUE,
                               diagX = FALSE,
-                              use_model_prior = TRUE,
-                              sparsity_threshold = 0.05,
-                              selection_score = c("data_likelihood", "beta_prior"),
-                              model_prior_method = c("binomial", "complexity"),
-                              model_size_prior_alpha = 0.5,
-                              model_size_prior_beta = 0.5,
-                              winner_prior_center = c("mean", "mode"),
+                              selection_score = c("beta_prior",
+                                                  "posterior_kernel"),
                               ...) {
   selection_score <- match.arg(selection_score)
-  model_prior_method <- match.arg(model_prior_method)
-  winner_prior_center <- match.arg(winner_prior_center)
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -79,30 +67,22 @@ tpb_full_pipeline <- function(X, y,
       X = X,
       y = y,
       iter_pre_opt = iter_pre_opt,
+      pre_opt_burnin = pre_opt_burnin,
+      pre_opt_samples = pre_opt_samples,
       omega_init_guess = omega_init_guess,
       sigmaSq_init_guess = sigmaSq_init_guess,
       iter_selection = iter_selection,
       woodbury = woodbury,
       diagX = diagX,
-      use_model_prior = use_model_prior,
-      sparsity_threshold = sparsity_threshold,
-      selection_score = selection_score,
-      model_prior_method = model_prior_method,
-      model_size_prior_alpha = model_size_prior_alpha,
-      model_size_prior_beta = model_size_prior_beta
+      selection_score = selection_score
     )
     winning_modes <- list(
       a = competition_result$winner$a,
       b = competition_result$winner$b
     )
     shape_val <- 1.5
-    if (winner_prior_center == "mean") {
-      rate_a <- shape_val / winning_modes$a
-      rate_b <- shape_val / winning_modes$b
-    } else {
-      rate_a <- (shape_val - 1) / winning_modes$a
-      rate_b <- (shape_val - 1) / winning_modes$b
-    }
+    rate_a <- shape_val / winning_modes$a
+    rate_b <- shape_val / winning_modes$b
     
     final_hyper_params <- modifyList(
       final_hyper_params,
@@ -219,9 +199,7 @@ tpb_full_pipeline <- function(X, y,
       winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
       winning_modes = winning_modes,
       model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
-      selection_score = if (is.null(competition_result)) NULL else competition_result$selection_score,
-      winner_prior_center = winner_prior_center,
-      model_prior = if (is.null(competition_result)) NULL else competition_result$model_prior
+      selection_score = if (is.null(competition_result)) NULL else competition_result$selection_score
     )
   )
 }

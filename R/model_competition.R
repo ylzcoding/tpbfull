@@ -18,118 +18,13 @@ eb_isConverged_hyper <- function(..., delta1, delta2, window_size = 3) {
   max(vapply(vecs, rel_err, numeric(1)), na.rm = TRUE) < delta2
 }
 
-eb_olasso_active_prop <- function(ol_fit, epsilon = 1e-8) {
-  if (is.null(ol_fit) || is.null(ol_fit$beta_1)) {
-    return(NA_real_)
-  }
-  mean(abs(ol_fit$beta_1) > epsilon)
-}
-
-eb_olasso_active_count <- function(ol_fit, epsilon = 1e-8) {
-  if (is.null(ol_fit) || is.null(ol_fit$beta_1)) {
-    return(NA_integer_)
-  }
-  sum(abs(ol_fit$beta_1) > epsilon)
-}
-
 eb_olasso_screen <- function(X, y, epsilon = 1e-8) {
   ol_fit <- natural::olasso(X, y, intercept = FALSE)
   list(
     beta = ol_fit$beta_1,
     sigmaSq = max(epsilon, ol_fit$sig_obj_1),
-    active_prop = eb_olasso_active_prop(ol_fit),
-    active_count = eb_olasso_active_count(ol_fit),
     source = "olasso"
   )
-}
-
-eb_candidate_model_log_prior <- function(X, y, candidates,
-                                         active_prop = NULL,
-                                         active_count = NULL,
-                                         sparsity_threshold = 0.05,
-                                         model_prior_method = c("binomial", "complexity"),
-                                         model_size_prior_alpha = 0.5,
-                                         model_size_prior_beta = 0.5) {
-  model_prior_method <- match.arg(model_prior_method)
-  if (is.null(active_prop) || !is.finite(active_prop) ||
-      is.null(active_count) || !is.finite(active_count)) {
-    ol_summary <- tryCatch({
-      eb_olasso_screen(X, y)
-    }, error = function(e) list(active_prop = NA_real_, active_count = NA_real_))
-    if (is.null(active_prop) || !is.finite(active_prop)) {
-      active_prop <- ol_summary$active_prop
-    }
-    if (is.null(active_count) || !is.finite(active_count)) {
-      active_count <- ol_summary$active_count
-    }
-  }
-  log_prior <- stats::setNames(rep(0, length(candidates)), names(candidates))
-  if (!is.finite(active_prop) || !is.finite(active_count)) {
-    return(list(log_prior = log_prior, active_prop = active_prop,
-                active_count = active_count,
-                source = "olasso",
-                sparsity_threshold = sparsity_threshold,
-                model_prior_method = model_prior_method,
-                model_size_prior_alpha = model_size_prior_alpha,
-                model_size_prior_beta = model_size_prior_beta))
-  }
-
-  candidate_ab <- do.call(rbind, lapply(candidates, function(x) {
-    c(a = x$a, b = x$b)
-  }))
-  candidate_names <- rownames(candidate_ab)
-  is_hs <- candidate_names == "hs" |
-    candidate_ab[, "a"] <= 0.5
-  is_dense <- candidate_names %in% c("normal_gamma", "ridge", "student_t") |
-    candidate_ab[, "b"] >= 5 |
-    candidate_ab[, "a"] >= 5 |
-    (candidate_ab[, "a"] >= 5 & candidate_ab[, "b"] >= 5)
-  is_dense <- is_dense & !is_hs
-
-  p <- ncol(X)
-  sparse_cutoff <- floor(sparsity_threshold * p)
-
-  if (model_prior_method == "complexity") {
-    if (active_count <= sparse_cutoff) {
-      dense_gap <- sparse_cutoff + 1 - active_count
-      log_prior[is_dense] <- -dense_gap * log(p)
-    } else {
-      hs_gap <- active_count - sparse_cutoff
-      log_prior[is_hs] <- -hs_gap * log(p)
-    }
-    if (any(is_hs)) {
-      log_prior[is_hs] <- log_prior[is_hs] - log(sum(is_hs))
-    }
-    if (any(is_dense)) {
-      log_prior[is_dense] <- log_prior[is_dense] - log(sum(is_dense))
-    }
-  } else {
-    q_hat <- (active_count + model_size_prior_alpha) /
-      (p + model_size_prior_alpha + model_size_prior_beta)
-    q_hat <- min(max(q_hat, .Machine$double.eps), 1 - .Machine$double.eps)
-
-    log_p_sparse <- stats::pbinom(
-      sparse_cutoff, size = p, prob = q_hat, log.p = TRUE
-    )
-    log_p_dense <- stats::pbinom(
-      sparse_cutoff, size = p, prob = q_hat,
-      lower.tail = FALSE, log.p = TRUE
-    )
-
-    if (any(is_hs)) {
-      log_prior[is_hs] <- log_p_sparse - log(sum(is_hs))
-    }
-    if (any(is_dense)) {
-      log_prior[is_dense] <- log_p_dense - log(sum(is_dense))
-    }
-  }
-
-  list(log_prior = log_prior, active_prop = active_prop,
-       active_count = active_count,
-       source = "olasso", sparsity_threshold = sparsity_threshold,
-       model_prior_method = model_prior_method,
-       model_size_prior_alpha = model_size_prior_alpha,
-       model_size_prior_beta = model_size_prior_beta)
 }
 
 eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
@@ -162,23 +57,31 @@ eb_calculate_gaussian_loglik_beta <- function(beta_vec, X, y, sigmaSq,
 }
 
 eb_calculate_selection_score <- function(beta_vec, model_params, X, y,
-                                         selection_score = c("data_likelihood", "beta_prior"),
+                                         selection_score = c("beta_prior",
+                                                             "posterior_kernel"),
                                          diagX = FALSE) {
   selection_score <- match.arg(selection_score)
+  if (selection_score == "posterior_kernel") {
+    return(
+      eb_calculate_gaussian_loglik_beta(
+        beta_vec = beta_vec,
+        X = X,
+        y = y,
+        sigmaSq = model_params$sigmaSq,
+        diagX = diagX
+      ) +
+        eb_calculate_marginal_loglik_beta(
+          beta_vec = beta_vec,
+          model_params = model_params
+        )
+    )
+  }
   if (selection_score == "beta_prior") {
     return(eb_calculate_marginal_loglik_beta(
       beta_vec = beta_vec,
       model_params = model_params
     ))
   }
-
-  eb_calculate_gaussian_loglik_beta(
-    beta_vec = beta_vec,
-    X = X,
-    y = y,
-    sigmaSq = model_params$sigmaSq,
-    diagX = diagX
-  )
 }
 
 eb_d_tpb <- function(beta_vec, a, b, phi) {
@@ -429,8 +332,8 @@ initialize_adaptive <- function(X, y,
                                 iter_pre_opt,
                                 iter_selection,
                                 candidates, woodbury,
-                                model_log_prior = NULL,
-                                selection_score = c("data_likelihood", "beta_prior"),
+                                selection_score = c("beta_prior",
+                                                    "posterior_kernel"),
                                 pre_opt_burnin = 500,
                                 pre_opt_samples = 1000,
                                 iter_burnin_selection = 0,
@@ -496,12 +399,7 @@ initialize_adaptive <- function(X, y,
 
   cat("Stage 3: Starting iterative model selection ...\n")
   model_names <- names(candidates)
-  if (is.null(model_log_prior)) {
-    model_log_prior <- stats::setNames(rep(0, length(model_names)), model_names)
-  } else {
-    model_log_prior <- model_log_prior[model_names]
-    model_log_prior[!is.finite(model_log_prior)] <- 0
-  }
+
   prob_matrix <- matrix(NA_real_, nrow = iter_selection, ncol = length(candidates))
   colnames(prob_matrix) <- model_names
   current_model_name <- sample(model_names, 1)
@@ -517,7 +415,7 @@ initialize_adaptive <- function(X, y,
         y = y,
         selection_score = selection_score,
         diagX = diagX
-      ) + model_log_prior[[name]]
+      )
     })
 
     max_log <- max(log_weights, na.rm = TRUE)
@@ -561,8 +459,6 @@ eb_initial_values <- function(X, y, epsilon = 1e-6) {
 
   screen <- eb_olasso_screen(X, y, epsilon = epsilon)
   sigmaSq_hat <- max(epsilon, screen$sigmaSq)
-  active_prop <- screen$active_prop
-  active_count <- screen$active_count
 
   y_sq_sum <- sum(y^2)
   trace_XX <- sum(X^2)
@@ -572,9 +468,7 @@ eb_initial_values <- function(X, y, epsilon = 1e-6) {
   } else {
     max(epsilon, numerator / trace_XX)
   }
-  list(sigmaSq = sigmaSq_hat, omega = omega_hat,
-       active_prop = active_prop, active_count = active_count,
-       source = screen$source)
+  list(sigmaSq = sigmaSq_hat, omega = omega_hat, source = screen$source)
 }
 
 #' Run Empirical Bayes Model Competition for TPB Prior Elicitation
@@ -589,16 +483,10 @@ eb_initial_values <- function(X, y, epsilon = 1e-6) {
 #' @param candidates Candidate models and their initial a,b values.
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
 #' @param iter_burnin_selection Burn-in iterations for the model indicator chain.
-#' @param use_model_prior Logical, add the organic-lasso regime prior to model weights.
-#' @param sparsity_threshold Active-proportion threshold for sparse vs dense regimes.
-#' @param selection_score Score used in stochastic model competition.
-#'   "data_likelihood" uses the Gaussian data likelihood evaluated at the
-#'   current beta draw; "beta_prior" is the original marginal TPB beta density.
-#' @param model_prior_method "binomial" uses the organic-lasso model size to
-#'   induce a smooth binomial regime prior; "complexity" penalizes regime
-#'   mismatch on a log(p) model-complexity scale.
-#' @param model_size_prior_alpha,model_size_prior_beta Beta smoothing constants for
-#'   the organic-lasso inclusion probability in the size-based regime prior.
+#' @param selection_score Score used in model competition.
+#'   "beta_prior" is the original marginal TPB beta density;
+#'   "posterior_kernel" is the unnormalized beta posterior kernel,
+#'   i.e. Gaussian likelihood plus marginal TPB beta density.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
 #' @param diagX Logical, assume diagonal X.
@@ -618,56 +506,20 @@ run_model_competition <- function(X, y,
                                   pre_opt_burnin = 200,
                                   pre_opt_samples = 200,
                                   iter_burnin_selection = 0,
-                                  use_model_prior = TRUE,
-                                  sparsity_threshold = 0.05,
-                                  selection_score = c("data_likelihood", "beta_prior"),
-                                  model_prior_method = c("binomial", "complexity"),
-                                  model_size_prior_alpha = 0.5,
-                                  model_size_prior_beta = 0.5,
+                                  selection_score = c("beta_prior",
+                                                      "posterior_kernel"),
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
                                   diagX = FALSE) {
   selection_score <- match.arg(selection_score)
-  model_prior_method <- match.arg(model_prior_method)
-  initial_values <- NULL
-  active_prop <- NA_real_
-  active_count <- NA_real_
-  if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess) ||
-      isTRUE(use_model_prior)) {
+  if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess)) {
     initial_values <- eb_initial_values(X = X, y = y)
-    active_prop <- initial_values$active_prop
-    active_count <- initial_values$active_count
     if (is.null(omega_init_guess)) {
       omega_init_guess <- initial_values$omega
     }
     if (is.null(sigmaSq_init_guess)) {
       sigmaSq_init_guess <- initial_values$sigmaSq
     }
-  }
-
-  prior_info <- if (isTRUE(use_model_prior)) {
-    eb_candidate_model_log_prior(
-      X = X,
-      y = y,
-      candidates = candidates,
-      active_prop = active_prop,
-      active_count = active_count,
-      sparsity_threshold = sparsity_threshold,
-      model_prior_method = model_prior_method,
-      model_size_prior_alpha = model_size_prior_alpha,
-      model_size_prior_beta = model_size_prior_beta
-    )
-  } else {
-    list(
-      log_prior = stats::setNames(rep(0, length(candidates)), names(candidates)),
-      active_prop = NA_real_,
-      active_count = NA_real_,
-      source = NA_character_,
-      sparsity_threshold = sparsity_threshold,
-      model_prior_method = model_prior_method,
-      model_size_prior_alpha = model_size_prior_alpha,
-      model_size_prior_beta = model_size_prior_beta
-    )
   }
 
   adaptive_result <- initialize_adaptive(
@@ -679,7 +531,6 @@ run_model_competition <- function(X, y,
     iter_selection = iter_selection,
     woodbury = woodbury,
     candidates = candidates,
-    model_log_prior = prior_info$log_prior,
     selection_score = selection_score,
     pre_opt_burnin = pre_opt_burnin,
     pre_opt_samples = pre_opt_samples,
@@ -693,7 +544,6 @@ run_model_competition <- function(X, y,
     winner = adaptive_result$winning_params,
     winner_name = adaptive_result$winner_name,
     raw = adaptive_result,
-    selection_score = selection_score,
-    model_prior = prior_info
+    selection_score = selection_score
   )
 }
