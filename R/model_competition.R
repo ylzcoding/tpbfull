@@ -27,6 +27,18 @@ eb_olasso_screen <- function(X, y, epsilon = 1e-8) {
   )
 }
 
+#' Default Candidate Set for TPB Model Competition
+#'
+#' @return A named list of candidate (a,b) pairs.
+#' @export
+tpb_default_candidates <- function() {
+  list(
+    hs = list(a = 0.5, b = 0.5),
+    lasso = list(a = 1.0, b = 5.0),
+    ridge = list(a = 5.0, b = 5.0)
+  )
+}
+
 eb_ridge_screen <- function(X, y, epsilon = 1e-8, ridge_lambda = NULL,
                             diagX = FALSE) {
   n <- nrow(X)
@@ -559,12 +571,7 @@ run_model_competition <- function(X, y,
                                   ridge_lambda = NULL,
                                   iter_selection = 5000,
                                   woodbury = TRUE,
-                                  candidates = list(
-                                    hs = list(a = 0.5, b = 0.5),
-                                    lasso = list(a = 1.0, b = 5.0),
-                                    normal_gamma = list(a = 0.5, b = 5.0),
-                                    ridge = list(a = 5.0, b = 5.0)
-                                  ),
+                                  candidates = tpb_default_candidates(),
                                   pre_opt_burnin = 200,
                                   pre_opt_samples = 200,
                                   iter_burnin_selection = 0,

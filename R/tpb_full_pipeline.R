@@ -24,6 +24,8 @@
 #'   "posterior_kernel" is the unnormalized beta posterior kernel,
 #'   i.e. Gaussian likelihood plus marginal TPB beta density.
 #' @param candidates Candidate models used when auto_find = TRUE.
+#'   This should be a named list; each entry must contain numeric a and b.
+#'   The default is tpb_default_candidates().
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -53,11 +55,7 @@ tpb_full_pipeline <- function(X, y,
                               diagX = FALSE,
                               selection_score = c("beta_prior",
                                                   "posterior_kernel"),
-                              candidates = list(
-                                hs = list(a = 0.5, b = 0.5),
-                                lasso = list(a = 1.0, b = 5.0),
-                                ridge = list(a = 5.0, b = 5.0)
-                              ),
+                              candidates = tpb_default_candidates(),
                               ...) {
   selection_score <- match.arg(selection_score)
   init_method <- match.arg(init_method)
