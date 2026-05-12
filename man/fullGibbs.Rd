@@ -18,9 +18,10 @@ fullGibbs(
   mh_step_phi = 0.1,
   adapt_block_size = 100,
   r_opt = 0.3,
-  max_log_proposal_sd = 0.25,
+  max_log_proposal_sd = 0.5,
+  max_log_mh_step = 1,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 0.1)
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1)
 )
 }
 \arguments{
@@ -38,8 +39,7 @@ fullGibbs(
 
 \item{diagX}{Logical, assume diagonal X}
 
-\item{proposal_type}{String, "separate" or "adaptive". The legacy value
-"all_adaptive" is accepted as an alias for "adaptive".}
+\item{proposal_type}{String, "separate" or "adaptive".}
 
 \item{mh_step_a}{Step size for the a update under the "separate" mode.}
 
@@ -53,6 +53,9 @@ fullGibbs(
 
 \item{max_log_proposal_sd}{Maximum marginal proposal standard deviation on
 the log scale for adaptive MH covariance regularization.}
+
+\item{max_log_mh_step}{Maximum single proposal move on the log scale. Proposals
+beyond this distance are treated as self-loops.}
 
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)}
 }

@@ -9,14 +9,25 @@ run_marginal_mh_uni <- function(beta_vec, target_param,
                                 prior_type_b = "gamma",
                                 scale_a = 1,
                                 scale_b = 1,
-                                mh_step = 0.1) {
+                                mh_step = 0.1,
+                                max_log_mh_step = Inf) {
 
   current_val <- switch(target_param,
                         "a" = current_a,
                         "b" = current_b,
                         "phi" = current_phi)
 
-  new_val <- exp(rnorm(1, mean = log(current_val), sd = mh_step))
+  log_current_val <- log(current_val)
+  log_new_val <- rnorm(1, mean = log_current_val, sd = mh_step)
+  if (is.finite(max_log_mh_step) &&
+      abs(log_new_val - log_current_val) > max_log_mh_step) {
+    old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
+                                       s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
+                                       prior_type_a, prior_type_b, scale_a, scale_b)
+    return(list(value = current_val, log_lik = old_eval$log_lik,
+                total_logpost = old_eval$log_posterior, accepted = FALSE))
+  }
+  new_val <- exp(log_new_val)
 
   a_new <- ifelse(target_param == "a", new_val, current_a)
   b_new <- ifelse(target_param == "b", new_val, current_b)
@@ -76,10 +87,20 @@ run_marginal_mh_tri_a_b_phi <- function(beta_vec, current_a, current_b, current_
                                         prior_type_b = "gamma",
                                         scale_a = 1,
                                         scale_b = 1,
-                                        cov_matrix = diag(3) * 0.01) {
+                                        cov_matrix = diag(3) * 0.01,
+                                        max_log_mh_step = Inf) {
 
   log_cur <- c(log(current_a), log(current_b), log(current_phi))
   log_new <- as.vector(mvtnorm::rmvnorm(1, mean = log_cur, sigma = cov_matrix))
+  if (is.finite(max_log_mh_step) &&
+      any(abs(log_new - log_cur) > max_log_mh_step)) {
+    old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
+                                       s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
+                                       prior_type_a, prior_type_b, scale_a, scale_b)
+    return(list(a = current_a, b = current_b, phi = current_phi,
+                accepted = FALSE, log_lik = old_eval$log_lik,
+                total_logpost = old_eval$log_posterior))
+  }
 
   a_new   <- exp(log_new[1])
   b_new   <- exp(log_new[2])

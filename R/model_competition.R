@@ -27,6 +27,44 @@ eb_olasso_screen <- function(X, y, epsilon = 1e-8) {
   )
 }
 
+eb_ridge_screen <- function(X, y, epsilon = 1e-8, ridge_lambda = NULL,
+                            diagX = FALSE) {
+  n <- nrow(X)
+  p <- ncol(X)
+  y <- as.vector(y)
+  if (is.null(ridge_lambda)) {
+    ridge_lambda <- sqrt(n)
+  }
+  ridge_lambda <- eb_positive_finite(ridge_lambda, epsilon)
+
+  if (diagX) {
+    x_diag <- diag(X)
+    beta <- x_diag * y / (x_diag^2 + ridge_lambda)
+    fitted <- x_diag * beta
+    df <- sum(x_diag^2 / (x_diag^2 + ridge_lambda))
+  } else if (p <= n) {
+    beta <- solve(crossprod(X) + ridge_lambda * diag(p), crossprod(X, y))
+    fitted <- as.vector(X %*% beta)
+    singular_values <- svd(X, nu = 0, nv = 0)$d^2
+    df <- sum(singular_values / (singular_values + ridge_lambda))
+  } else {
+    alpha <- solve(tcrossprod(X) + ridge_lambda * diag(n), y)
+    beta <- as.vector(crossprod(X, alpha))
+    fitted <- as.vector(X %*% beta)
+    singular_values <- svd(X, nu = 0, nv = 0)$d^2
+    df <- sum(singular_values / (singular_values + ridge_lambda))
+  }
+
+  rss <- sum((y - fitted)^2)
+  sigmaSq <- rss / max(n - df, 1)
+  list(
+    beta = as.vector(beta),
+    sigmaSq = max(epsilon, sigmaSq),
+    source = "ridge",
+    ridge_lambda = ridge_lambda
+  )
+}
+
 eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
   a <- model_params$a
   b <- model_params$b
@@ -454,10 +492,21 @@ initialize_adaptive <- function(X, y,
   )
 }
 
-eb_initial_values <- function(X, y, epsilon = 1e-6) {
+eb_initial_values <- function(X, y, epsilon = 1e-6,
+                              init_method = c("ridge", "olasso"),
+                              ridge_lambda = NULL,
+                              diagX = FALSE) {
+  init_method <- match.arg(init_method)
   n <- nrow(X)
 
-  screen <- eb_olasso_screen(X, y, epsilon = epsilon)
+  screen <- if (init_method == "ridge") {
+    eb_ridge_screen(
+      X = X, y = y, epsilon = epsilon,
+      ridge_lambda = ridge_lambda, diagX = diagX
+    )
+  } else {
+    eb_olasso_screen(X, y, epsilon = epsilon)
+  }
   sigmaSq_hat <- max(epsilon, screen$sigmaSq)
 
   y_sq_sum <- sum(y^2)
@@ -468,7 +517,12 @@ eb_initial_values <- function(X, y, epsilon = 1e-6) {
   } else {
     max(epsilon, numerator / trace_XX)
   }
-  list(sigmaSq = sigmaSq_hat, omega = omega_hat, source = screen$source)
+  list(
+    sigmaSq = sigmaSq_hat,
+    omega = omega_hat,
+    source = screen$source,
+    ridge_lambda = screen$ridge_lambda
+  )
 }
 
 #' Run Empirical Bayes Model Competition for TPB Prior Elicitation
@@ -478,6 +532,11 @@ eb_initial_values <- function(X, y, epsilon = 1e-6) {
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for omega and sigmaSq.
 #'   The Gibbs E-step uses phi = omega * b / a.
+#' @param init_method Method used to initialize omega and sigmaSq when explicit
+#'   initial guesses are not supplied. "ridge" uses a ridge regression residual
+#'   variance; "olasso" uses organic lasso.
+#' @param ridge_lambda Ridge penalty used when init_method = "ridge". If NULL,
+#'   sqrt(n) is used.
 #' @param iter_selection Number of post-burn-in samples for model selection.
 #' @param woodbury Logical, use Woodbury identity in beta updates.
 #' @param candidates Candidate models and their initial a,b values.
@@ -496,13 +555,15 @@ run_model_competition <- function(X, y,
                                   iter_pre_opt = 100,
                                   omega_init_guess = NULL,
                                   sigmaSq_init_guess = NULL,
+                                  init_method = c("ridge", "olasso"),
+                                  ridge_lambda = NULL,
                                   iter_selection = 5000,
                                   woodbury = TRUE,
                                   candidates = list(
                                     hs = list(a = 0.5, b = 0.5),
-                                    lasso = list(a = 1.0, b = 10.0),
-                                    normal_gamma = list(a = 0.5, b = 10.0),
-                                    ridge = list(a = 10.0, b = 10.0)
+                                    lasso = list(a = 1.0, b = 5.0),
+                                    normal_gamma = list(a = 0.5, b = 5.0),
+                                    ridge = list(a = 5.0, b = 5.0)
                                   ),
                                   pre_opt_burnin = 200,
                                   pre_opt_samples = 200,
@@ -513,8 +574,14 @@ run_model_competition <- function(X, y,
                                   window_size = 5,
                                   diagX = FALSE) {
   selection_score <- match.arg(selection_score)
+  init_method <- match.arg(init_method)
   if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess)) {
-    initial_values <- eb_initial_values(X = X, y = y)
+    initial_values <- eb_initial_values(
+      X = X, y = y,
+      init_method = init_method,
+      ridge_lambda = ridge_lambda,
+      diagX = diagX
+    )
     if (is.null(omega_init_guess)) {
       omega_init_guess <- initial_values$omega
     }

@@ -84,6 +84,8 @@ data <- sparse_data_gen(
 #
 # The empirical-Bayes competition first selects a candidate (a,b), then the
 # fully Bayesian sampler uses Gamma priors centered at the winning values.
+# By default, sigmaSq and omega are initialized from a ridge fit. Use
+# init_method = "olasso" to switch back to organic-lasso initialization.
 fit <- tpb_full_pipeline(
   X = data$X,
   y = data$y,
@@ -93,6 +95,7 @@ fit <- tpb_full_pipeline(
   thinning = 1,
   auto_find = TRUE,
   selection_score = "posterior_kernel",
+  init_method = "ridge",
   iter_pre_opt = 20,
   pre_opt_burnin = 50,
   pre_opt_samples = 50,

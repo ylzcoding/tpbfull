@@ -19,7 +19,8 @@ run_marginal_mh_uni(
   prior_type_b = "gamma",
   scale_a = 1,
   scale_b = 1,
-  mh_step = 0.1
+  mh_step = 0.1,
+  max_log_mh_step = Inf
 )
 }
 \arguments{

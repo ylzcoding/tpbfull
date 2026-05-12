@@ -10,18 +10,16 @@ run_model_competition(
   iter_pre_opt = 100,
   omega_init_guess = NULL,
   sigmaSq_init_guess = NULL,
+  init_method = c("ridge", "olasso"),
+  ridge_lambda = NULL,
   iter_selection = 5000,
   woodbury = TRUE,
-  candidates = list(hs = list(a = 0.5, b = 0.5), normal_gamma = list(a = 1, b =
-    10), ridge = list(a = 10, b = 10)),
+  candidates = list(hs = list(a = 0.5, b = 0.5), lasso = list(a = 1, b = 5), normal_gamma
+    = list(a = 0.5, b = 5), ridge = list(a = 5, b = 5)),
   pre_opt_burnin = 200,
   pre_opt_samples = 200,
   iter_burnin_selection = 0,
-  use_model_prior = TRUE,
-  sparsity_threshold = 0.1,
-  model_prior_method = c("complexity", "binomial"),
-  model_size_prior_alpha = 1,
-  model_size_prior_beta = 1,
+  selection_score = c("beta_prior", "posterior_kernel"),
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
@@ -39,6 +37,13 @@ run_model_competition(
 \item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for omega and sigmaSq.
 The Gibbs E-step uses phi = omega * b / a.}
 
+\item{init_method}{Method used to initialize omega and sigmaSq when explicit
+initial guesses are not supplied. "ridge" uses a ridge regression residual
+variance; "olasso" uses organic lasso.}
+
+\item{ridge_lambda}{Ridge penalty used when init_method = "ridge". If NULL,
+sqrt(n) is used.}
+
 \item{iter_selection}{Number of post-burn-in samples for model selection.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
@@ -49,16 +54,10 @@ The Gibbs E-step uses phi = omega * b / a.}
 
 \item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
 
-\item{use_model_prior}{Logical, add the organic-lasso regime prior to model weights.}
-
-\item{sparsity_threshold}{Active-proportion threshold for sparse vs dense regimes.}
-
-\item{model_prior_method}{"complexity" penalizes regime mismatch on a log(p)
-model-complexity scale; "binomial" uses the organic-lasso model size to
-induce a binomial regime prior.}
-
-\item{model_size_prior_alpha, model_size_prior_beta}{Beta smoothing constants for
-the organic-lasso inclusion probability in the size-based regime prior.}
+\item{selection_score}{Score used in model competition.
+"beta_prior" is the original marginal TPB beta density;
+"posterior_kernel" is the unnormalized beta posterior kernel,
+i.e. Gaussian likelihood plus marginal TPB beta density.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 

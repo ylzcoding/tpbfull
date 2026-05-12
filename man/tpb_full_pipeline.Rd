@@ -10,21 +10,23 @@ tpb_full_pipeline(
   num_chains = 4,
   auto_find = TRUE,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 0.1),
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1),
   num_iter = 1e+05,
   num_warmup = 25000,
   thinning = 1,
   iter_pre_opt = 100,
+  pre_opt_burnin = 200,
+  pre_opt_samples = 200,
   omega_init_guess = NULL,
   sigmaSq_init_guess = NULL,
+  init_method = c("ridge", "olasso"),
+  ridge_lambda = NULL,
   iter_selection = 5000,
   woodbury = TRUE,
   diagX = FALSE,
-  use_model_prior = TRUE,
-  sparsity_threshold = 0.1,
-  model_prior_method = c("complexity", "binomial"),
-  model_size_prior_alpha = 1,
-  model_size_prior_beta = 1,
+  selection_score = c("beta_prior", "posterior_kernel"),
+  candidates = list(hs = list(a = 0.5, b = 0.5), lasso = list(a = 1, b = 5), normal_gamma
+    = list(a = 0.5, b = 5), ridge = list(a = 5, b = 5)),
   ...
 )
 }
@@ -47,7 +49,16 @@ tpb_full_pipeline(
 
 \item{iter_pre_opt}{Iterations for the model competition pre-optimization EM stage for each candidate}
 
+\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step}
+
 \item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for EB omega and sigmaSq}
+
+\item{init_method}{Method used to initialize EB omega and sigmaSq when
+explicit initial guesses are not supplied. "ridge" uses ridge regression;
+"olasso" uses organic lasso.}
+
+\item{ridge_lambda}{Ridge penalty used when init_method = "ridge". If NULL,
+sqrt(n) is used.}
 
 \item{iter_selection}{Number of post-burn-in samples for model selection}
 
@@ -55,16 +66,12 @@ tpb_full_pipeline(
 
 \item{diagX}{Logical, assume diagonal X}
 
-\item{use_model_prior}{Logical, add the organic-lasso regime prior in model competition}
+\item{selection_score}{Score used in stochastic model competition.
+"beta_prior" is the original marginal TPB beta density;
+"posterior_kernel" is the unnormalized beta posterior kernel,
+i.e. Gaussian likelihood plus marginal TPB beta density.}
 
-\item{sparsity_threshold}{Active-proportion threshold for sparse vs dense regimes}
-
-\item{model_prior_method}{"complexity" penalizes regime mismatch on a log(p)
-model-complexity scale; "binomial" uses the organic-lasso model size to
-induce a binomial regime prior.}
-
-\item{model_size_prior_alpha, model_size_prior_beta}{Beta smoothing constants for
-the organic-lasso inclusion probability in the size-based regime prior.}
+\item{candidates}{Candidate models used when auto_find = TRUE.}
 
 \item{...}{Additional arguments passed to fullGibbs()}
 }

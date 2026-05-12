@@ -11,6 +11,11 @@
 #' @param iter_pre_opt Iterations for the model competition pre-optimization EM stage for each candidate
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for EB omega and sigmaSq
+#' @param init_method Method used to initialize EB omega and sigmaSq when
+#'   explicit initial guesses are not supplied. "ridge" uses ridge regression;
+#'   "olasso" uses organic lasso.
+#' @param ridge_lambda Ridge penalty used when init_method = "ridge". If NULL,
+#'   sqrt(n) is used.
 #' @param iter_selection Number of post-burn-in samples for model selection
 #' @param woodbury Logical, use Woodbury identity in both model competition and full Gibbs sampling
 #' @param diagX Logical, assume diagonal X
@@ -18,6 +23,7 @@
 #'   "beta_prior" is the original marginal TPB beta density;
 #'   "posterior_kernel" is the unnormalized beta posterior kernel,
 #'   i.e. Gaussian likelihood plus marginal TPB beta density.
+#' @param candidates Candidate models used when auto_find = TRUE.
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -31,7 +37,7 @@ tpb_full_pipeline <- function(X, y,
                                                   s_b = 1.5, r_b = 1,
                                                   scale_a = 1,
                                                   scale_b = 1,
-                                                  scale_phi = 0.1),
+                                                  scale_phi = 1),
                               num_iter = 100000,
                               num_warmup = 25000,
                               thinning = 1,
@@ -40,13 +46,22 @@ tpb_full_pipeline <- function(X, y,
                               pre_opt_samples = 200,
                               omega_init_guess = NULL,
                               sigmaSq_init_guess = NULL,
+                              init_method = c("ridge", "olasso"),
+                              ridge_lambda = NULL,
                               iter_selection = 5000,
                               woodbury = TRUE,
                               diagX = FALSE,
                               selection_score = c("beta_prior",
                                                   "posterior_kernel"),
+                              candidates = list(
+                                hs = list(a = 0.5, b = 0.5),
+                                lasso = list(a = 1.0, b = 5.0),
+                                normal_gamma = list(a = 0.5, b = 5.0),
+                                ridge = list(a = 5.0, b = 5.0)
+                              ),
                               ...) {
   selection_score <- match.arg(selection_score)
+  init_method <- match.arg(init_method)
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -56,7 +71,7 @@ tpb_full_pipeline <- function(X, y,
   final_hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
-         scale_a = 1, scale_b = 1, scale_phi = 0.1),
+         scale_a = 1, scale_b = 1, scale_phi = 1),
     hyper_params
   )
 
@@ -71,10 +86,13 @@ tpb_full_pipeline <- function(X, y,
       pre_opt_samples = pre_opt_samples,
       omega_init_guess = omega_init_guess,
       sigmaSq_init_guess = sigmaSq_init_guess,
+      init_method = init_method,
+      ridge_lambda = ridge_lambda,
       iter_selection = iter_selection,
       woodbury = woodbury,
       diagX = diagX,
-      selection_score = selection_score
+      selection_score = selection_score,
+      candidates = candidates
     )
     winning_modes <- list(
       a = competition_result$winner$a,

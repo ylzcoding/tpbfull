@@ -17,6 +17,8 @@
 #' @param r_opt Numeric, target acceptance rate for adaptive MH (default 0.3)
 #' @param max_log_proposal_sd Maximum marginal proposal standard deviation on
 #'   the log scale for adaptive MH covariance regularization.
+#' @param max_log_mh_step Maximum single proposal move on the log scale. Proposals
+#'   beyond this distance are treated as self-loops.
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b, s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi)
 #' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
 #' @export
@@ -24,10 +26,11 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       woodbury = TRUE, diagX = FALSE, proposal_type = "separate",
                       mh_step_a = 0.1, mh_step_b = 0.1, mh_step_phi = 0.1,
                       adapt_block_size = 100, r_opt = 0.3,
-                      max_log_proposal_sd = 0.25,
+                      max_log_proposal_sd = 0.5,
+                      max_log_mh_step = 1.0,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
-                                          scale_a = 1, scale_b = 1, scale_phi = 0.1)) {
+                                          scale_a = 1, scale_b = 1, scale_phi = 1)) {
 
   n <- nrow(X)
   p <- ncol(X)
@@ -36,7 +39,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
-         scale_a = 1, scale_b = 1, scale_phi = 0.1),
+         scale_a = 1, scale_b = 1, scale_phi = 1),
     hyper_params
   )
   hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))
@@ -76,7 +79,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   }
   a       <- pmin(pmax(a, 1e-4), 1e4)
   b       <- pmin(pmax(b, 1e-4), 1e4)
-  phi     <- abs(rcauchy(1, location = 0, scale = hyper_params$scale_phi))
+  phi     <- hyper_params$scale_phi
   phi     <- pmin(pmax(phi, 1e-4), 1e4) # 1
   psi     <- rep(1, p)
   zeta    <- rep(1, p)
@@ -132,7 +135,8 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    prior_type_b = hyper_params$prior_type_b,
                                    scale_a = hyper_params$scale_a,
                                    scale_b = hyper_params$scale_b,
-                                   mh_step = mh_step_a)
+                                   mh_step = mh_step_a,
+                                   max_log_mh_step = max_log_mh_step)
       if (a_new$accepted) {accept_count_a <- accept_count_a + 1}
       a <- a_new$value
       beta_loglik <- a_new$log_lik
@@ -147,7 +151,8 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    prior_type_b = hyper_params$prior_type_b,
                                    scale_a = hyper_params$scale_a,
                                    scale_b = hyper_params$scale_b,
-                                   mh_step = mh_step_b)
+                                   mh_step = mh_step_b,
+                                   max_log_mh_step = max_log_mh_step)
       if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
       b <- b_new$value
       beta_loglik <- b_new$log_lik
@@ -162,7 +167,8 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                      prior_type_b = hyper_params$prior_type_b,
                                      scale_a = hyper_params$scale_a,
                                      scale_b = hyper_params$scale_b,
-                                     mh_step = mh_step_phi)
+                                     mh_step = mh_step_phi,
+                                     max_log_mh_step = max_log_mh_step)
       if (phi_new$accepted) {accept_count_phi <- accept_count_phi + 1}
       phi <- phi_new$value
       beta_loglik <- phi_new$log_lik
@@ -176,7 +182,8 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                                  prior_type_b = hyper_params$prior_type_b,
                                                  scale_a = hyper_params$scale_a,
                                                  scale_b = hyper_params$scale_b,
-                                                 cov_matrix = current_proposal_cov)
+                                                 cov_matrix = current_proposal_cov,
+                                                 max_log_mh_step = max_log_mh_step)
       if (a_b_phi_new$accepted) {
         accept_count_a <- accept_count_a + 1
         accept_count_b <- accept_count_b + 1
