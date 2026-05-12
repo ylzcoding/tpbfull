@@ -57,10 +57,20 @@ run_marginal_mh_bi_a_phi <- function(beta_vec, current_a, current_b, current_phi
                                      prior_type_b = "gamma",
                                      scale_a = 1,
                                      scale_b = 1,
-                                     cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2)) {
+                                     cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
+                                     max_log_mh_step = Inf) {
 
   log_cur <- c(log(current_a), log(current_phi))
   log_new <- as.vector(mvtnorm::rmvnorm(1, mean = log_cur, sigma = cov_matrix))
+  if (is.finite(max_log_mh_step) &&
+      any(abs(log_new - log_cur) > max_log_mh_step)) {
+    old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
+                                       s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
+                                       prior_type_a, prior_type_b, scale_a, scale_b)
+    return(list(a = current_a, phi = current_phi, accepted = FALSE,
+                log_lik = old_eval$log_lik,
+                total_logpost = old_eval$log_posterior))
+  }
 
   a_new   <- exp(log_new[1])
   phi_new <- exp(log_new[2])

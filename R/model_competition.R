@@ -35,6 +35,7 @@ tpb_default_candidates <- function() {
   list(
     hs = list(a = 0.5, b = 0.5),
     lasso = list(a = 1.0, b = 5.0),
+    normal_gamma = list(a = 0.5, b = 5.0),
     ridge = list(a = 5.0, b = 5.0)
   )
 }
