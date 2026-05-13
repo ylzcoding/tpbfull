@@ -19,10 +19,6 @@
 #' @param iter_selection Number of post-burn-in samples for model selection
 #' @param woodbury Logical, use Woodbury identity in both model competition and full Gibbs sampling
 #' @param diagX Logical, assume diagonal X
-#' @param selection_score Score used in stochastic model competition.
-#'   "beta_prior" is the original marginal TPB beta density;
-#'   "posterior_kernel" is the unnormalized beta posterior kernel,
-#'   i.e. Gaussian likelihood plus marginal TPB beta density.
 #' @param candidates Candidate models used when auto_find = TRUE.
 #'   This should be a named list; each entry must contain numeric a and b.
 #'   The default is tpb_default_candidates().
@@ -53,11 +49,8 @@ tpb_full_pipeline <- function(X, y,
                               iter_selection = 5000,
                               woodbury = TRUE,
                               diagX = FALSE,
-                              selection_score = c("beta_prior",
-                                                  "posterior_kernel"),
                               candidates = tpb_default_candidates(),
                               ...) {
-  selection_score <- match.arg(selection_score)
   init_method <- match.arg(init_method)
 
   num_posterior <- num_iter - num_warmup
@@ -88,7 +81,6 @@ tpb_full_pipeline <- function(X, y,
       iter_selection = iter_selection,
       woodbury = woodbury,
       diagX = diagX,
-      selection_score = selection_score,
       candidates = candidates
     )
     winning_modes <- list(
@@ -213,8 +205,7 @@ tpb_full_pipeline <- function(X, y,
       enabled = isTRUE(auto_find),
       winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
       winning_modes = winning_modes,
-      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
-      selection_score = if (is.null(competition_result)) NULL else competition_result$selection_score
+      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities
     )
   )
 }

@@ -75,14 +75,9 @@ data <- sparse_data_gen(
   correlation = 0.8
 )
 
-# Model-selection scores:
-#   "beta_prior":
-#      original score, log p(beta | a, b, phi)
-#   "posterior_kernel":
-#      unnormalized beta posterior kernel,
-#      log p(y | X, beta, sigmaSq) + log p(beta | a, b, phi)
-#
 # The empirical-Bayes competition first selects a candidate (a,b), then the
+# stochastic winner score is the unnormalized beta posterior kernel,
+# log p(y | X, beta, sigmaSq) + log p(beta | a, b, phi). The
 # fully Bayesian sampler uses Gamma priors centered at the winning values.
 # By default, sigmaSq and omega are initialized from a ridge fit. Use
 # init_method = "olasso" to switch back to organic-lasso initialization.
@@ -94,7 +89,6 @@ fit <- tpb_full_pipeline(
   num_warmup = 2000,
   thinning = 1,
   auto_find = TRUE,
-  selection_score = "posterior_kernel",
   init_method = "ridge",
   iter_pre_opt = 20,
   pre_opt_burnin = 50,

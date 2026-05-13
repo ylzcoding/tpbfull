@@ -81,6 +81,8 @@ eb_ridge_screen <- function(X, y, epsilon = 1e-8, ridge_lambda = NULL,
 eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
   a <- model_params$a
   b <- model_params$b
+  # EB stores omega in beta | nu, lambda, omega.
+  # The marginal TPB beta density uses phi = omega * b / a.
   phi <- model_params$omega * b / a
   if (!is.finite(phi) || phi <= 0) {
     return(-Inf)
@@ -107,32 +109,19 @@ eb_calculate_gaussian_loglik_beta <- function(beta_vec, X, y, sigmaSq,
     sum(resid^2) / (2 * sigmaSq)
 }
 
-eb_calculate_selection_score <- function(beta_vec, model_params, X, y,
-                                         selection_score = c("beta_prior",
-                                                             "posterior_kernel"),
-                                         diagX = FALSE) {
-  selection_score <- match.arg(selection_score)
-  if (selection_score == "posterior_kernel") {
-    return(
-      eb_calculate_gaussian_loglik_beta(
-        beta_vec = beta_vec,
-        X = X,
-        y = y,
-        sigmaSq = model_params$sigmaSq,
-        diagX = diagX
-      ) +
-        eb_calculate_marginal_loglik_beta(
-          beta_vec = beta_vec,
-          model_params = model_params
-        )
-    )
-  }
-  if (selection_score == "beta_prior") {
-    return(eb_calculate_marginal_loglik_beta(
+eb_calculate_posterior_kernel_score <- function(beta_vec, model_params, X, y,
+                                                diagX = FALSE) {
+  eb_calculate_gaussian_loglik_beta(
+    beta_vec = beta_vec,
+    X = X,
+    y = y,
+    sigmaSq = model_params$sigmaSq,
+    diagX = diagX
+  ) +
+    eb_calculate_marginal_loglik_beta(
       beta_vec = beta_vec,
       model_params = model_params
-    ))
-  }
+    )
 }
 
 eb_d_tpb <- function(beta_vec, a, b, phi) {
@@ -177,7 +166,7 @@ eb_d_tpb <- function(beta_vec, a, b, phi) {
 }
 
 eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
-                              beta0, psi0, zeta0, burn = 0,
+                              beta0, nu0, lambda0, xi0, burn = 0,
                               woodbury = FALSE, diagX = FALSE) {
   total <- num + burn
   if (total < 1) {
@@ -186,29 +175,37 @@ eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
 
   p <- ncol(X)
   beta_samples <- matrix(NA_real_, nrow = total, ncol = p)
-  psi_samples <- matrix(NA_real_, nrow = total, ncol = p)
-  zeta_samples <- matrix(NA_real_, nrow = total, ncol = p)
+  nu_samples <- matrix(NA_real_, nrow = total, ncol = p)
+  lambda_samples <- matrix(NA_real_, nrow = total, ncol = p)
+  xi_samples <- matrix(NA_real_, nrow = total, ncol = p)
 
   beta_samples[1, ] <- beta0
-  psi_samples[1, ] <- pmax(psi0, 1e-16)
-  zeta_samples[1, ] <- pmax(zeta0, 1e-16)
+  nu_samples[1, ] <- pmax(nu0, 1e-16)
+  lambda_samples[1, ] <- pmax(lambda0, 1e-16)
+  xi_samples[1, ] <- pmax(xi0, 1e-16)
 
   if (total >= 2) {
     for (i in 2:total) {
-      phi_current <- eb_positive_finite(omega * b / a, 1e-16)
+      omega_current <- eb_positive_finite(omega, 1e-16)
       beta_samples[i, ] <- Gibbs_beta(
         X = X, y = y, a = a, b = b,
-        phi = phi_current,
+        phi = omega_current,
         sigmaSq = eb_positive_finite(sigmaSq, 1e-16),
-        psi = psi_samples[i - 1, ],
+        nu = nu_samples[i - 1, ],
+        lambda = lambda_samples[i - 1, ],
         woodbury = woodbury, diagX = diagX
       )
-      zeta_samples[i, ] <- Gibbs_zeta(
-        p = p, a = a, b = b, psi = psi_samples[i - 1, ]
+      nu_samples[i, ] <- Gibbs_nu(
+        p = p, phi = omega_current, beta = beta_samples[i, ],
+        lambda = lambda_samples[i - 1, ], xi = xi_samples[i - 1, ],
+        a = a
       )
-      psi_samples[i, ] <- Gibbs_psi(
-        p = p, b = b, phi = phi_current,
-        beta = beta_samples[i, ], zeta = zeta_samples[i, ]
+      xi_samples[i, ] <- Gibbs_xi(
+        p = p, a = a, nu = nu_samples[i, ]
+      )
+      lambda_samples[i, ] <- Gibbs_lambda(
+        p = p, b = b, phi = omega_current,
+        beta = beta_samples[i, ], nu = nu_samples[i, ]
       )
     }
   }
@@ -216,24 +213,23 @@ eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
   keep <- (burn + 1):total
   list(
     beta = beta_samples[keep, , drop = FALSE],
-    psi = psi_samples[keep, , drop = FALSE],
-    zeta = zeta_samples[keep, , drop = FALSE]
+    nu = nu_samples[keep, , drop = FALSE],
+    lambda = lambda_samples[keep, , drop = FALSE],
+    xi = xi_samples[keep, , drop = FALSE]
   )
 }
 
-# Current Gibbs functions use the IG-IG TPB representation:
-#   beta | psi, phi ~ N(0, phi * psi), phi = omega * b / a.
-# This is equivalent to the EM formulas with
-#   a * nu = 1 / zeta and b * lambda = 1 / (zeta * psi).
-eb_m_step_a <- function(zeta_matrix) {
-  target <- -mean(log(pmax(zeta_matrix, .Machine$double.xmin)))
-  candidate <- tryCatch(bzinb::idigamma(target), error = function(e) NA_real_)
-  eb_positive_finite(as.numeric(candidate), 1e-6)
-}
+# ECM shape update used by the nu/lambda augmentation.
+# When updating the shape, the gamma rate is held at the current shape value.
+eb_m_step_ab <- function(sample_matrix, current_value) {
+  x <- pmax(as.numeric(sample_matrix), .Machine$double.xmin)
+  mean_log_x <- mean(log(x))
 
-eb_m_step_b <- function(psi_matrix, zeta_matrix) {
-  target <- -mean(log(pmax(psi_matrix, .Machine$double.xmin))) -
-    mean(log(pmax(zeta_matrix, .Machine$double.xmin)))
+  if (!is.finite(mean_log_x)) {
+    return(eb_positive_finite(current_value, 1e-6))
+  }
+
+  target <- log(eb_positive_finite(current_value, 1e-6)) + mean_log_x
   candidate <- tryCatch(bzinb::idigamma(target), error = function(e) NA_real_)
   eb_positive_finite(as.numeric(candidate), 1e-6)
 }
@@ -257,8 +253,8 @@ eb_m_step_sigmaSq <- function(beta_matrix, X, y, diagX = FALSE) {
   eb_positive_finite(mean(ssr) / n, 1e-16)
 }
 
-eb_m_step_omega <- function(beta_matrix, psi_matrix, a_current, b_current) {
-  vals <- beta_matrix^2 * a_current / (b_current * pmax(psi_matrix, 1e-16))
+eb_m_step_omega <- function(beta_matrix, lambda_matrix, nu_matrix) {
+  vals <- beta_matrix^2 * lambda_matrix / pmax(nu_matrix, 1e-16)
   finite_vals <- vals[is.finite(vals)]
   if (length(finite_vals) == 0) {
     return(1e-6)
@@ -289,8 +285,7 @@ eb_run_em_engine <- function(X, y,
   beta0 <- rnorm(p, mean = 0, sd = sqrt(sigmaSq_vec[1]))
   nu0 <- rgamma(p, 1, 1)
   lambda0 <- rgamma(p, 1, 1)
-  zeta0 <- 1 / pmax(a_vec[1] * nu0, 1e-16)
-  psi0 <- b_vec[1] * nu0 / pmax(a_vec[1] * lambda0, 1e-16)
+  xi0 <- Gibbs_xi(p = p, a = a_vec[1], nu = nu0)
   last_beta_hat <- NULL
 
   for (k in seq_len(max_iter)) {
@@ -298,23 +293,24 @@ eb_run_em_engine <- function(X, y,
       num = iter_samples, X = X, y = y,
       a = a_vec[k], b = b_vec[k],
       omega = omega_vec[k], sigmaSq = sigmaSq_vec[k],
-      beta0 = beta0, psi0 = psi0, zeta0 = zeta0,
+      beta0 = beta0, nu0 = nu0, lambda0 = lambda0, xi0 = xi0,
       burn = iter_burnin,
       woodbury = woodbury, diagX = diagX
     )
 
-    a_new <- if (update_a) eb_m_step_a(samples$zeta) else a_vec[k]
-    b_new <- if (update_b) eb_m_step_b(samples$psi, samples$zeta) else b_vec[k]
+    a_new <- if (update_a) eb_m_step_ab(samples$nu, a_vec[k]) else a_vec[k]
+    b_new <- if (update_b) eb_m_step_ab(samples$lambda, b_vec[k]) else b_vec[k]
     sigmaSq_new <- if (update_sigmaSq) eb_m_step_sigmaSq(samples$beta, X, y, diagX) else sigmaSq_vec[k]
     omega_new <- if (update_omega) {
-      eb_m_step_omega(samples$beta, samples$psi, a_vec[k], b_vec[k])
+      eb_m_step_omega(samples$beta, samples$lambda, samples$nu)
     } else {
       omega_vec[k]
     }
 
     beta0 <- samples$beta[nrow(samples$beta), ]
-    psi0 <- samples$psi[nrow(samples$psi), ]
-    zeta0 <- samples$zeta[nrow(samples$zeta), ]
+    nu0 <- samples$nu[nrow(samples$nu), ]
+    lambda0 <- samples$lambda[nrow(samples$lambda), ]
+    xi0 <- samples$xi[nrow(samples$xi), ]
 
     beta_hat <- colMeans(samples$beta)
     beta_diff_vec <- c(
@@ -351,7 +347,7 @@ eb_run_em_engine <- function(X, y,
   list(
     params = list(a = a_vec[l], b = b_vec[l],
                   omega = omega_vec[l], sigmaSq = sigmaSq_vec[l]),
-    final_state = list(beta0 = beta0, psi0 = psi0, zeta0 = zeta0),
+    final_state = list(beta0 = beta0, nu0 = nu0, lambda0 = lambda0, xi0 = xi0),
     trajectories = list(a_traj = a_vec, b_traj = b_vec,
                         sigmaSq_traj = sigmaSq_vec,
                         omega_traj = omega_vec,
@@ -363,7 +359,7 @@ eb_run_em_engine <- function(X, y,
 #'
 #' @param X,y Model matrix and response vector.
 #' @param omega_init_guess,sigmaSq_init_guess Initial guesses for omega and sigmaSq.
-#'   The Gibbs E-step uses phi = omega * b / a.
+#'   In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
 #' @param iter_burnin_selection Burn-in iterations for the model indicator chain.
@@ -383,8 +379,6 @@ initialize_adaptive <- function(X, y,
                                 iter_pre_opt,
                                 iter_selection,
                                 candidates, woodbury,
-                                selection_score = c("beta_prior",
-                                                    "posterior_kernel"),
                                 pre_opt_burnin = 500,
                                 pre_opt_samples = 1000,
                                 iter_burnin_selection = 0,
@@ -394,7 +388,6 @@ initialize_adaptive <- function(X, y,
                                 update_sigmaSq = TRUE,
                                 delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                 window_size = 5, diagX = FALSE) {
-  selection_score <- match.arg(selection_score)
   cat("Stage 1: Pre-optimizing each candidate model via Gibbs-within-EM...\n")
 
   pre_optimized_params <- list()
@@ -441,8 +434,9 @@ initialize_adaptive <- function(X, y,
       num = iter_selection, X = X, y = y,
       a = params$a, b = params$b,
       omega = params$omega, sigmaSq = params$sigmaSq,
-      beta0 = starting$beta0, psi0 = starting$psi0,
-      zeta0 = starting$zeta0, burn = 0,
+      beta0 = starting$beta0, nu0 = starting$nu0,
+      lambda0 = starting$lambda0, xi0 = starting$xi0,
+      burn = 0,
       woodbury = woodbury, diagX = diagX
     )
     presampled_betas[[name]] <- presamples$beta
@@ -459,12 +453,11 @@ initialize_adaptive <- function(X, y,
   iter_total <- iter_burnin_selection + iter_selection
   for (j in seq_len(iter_total)) {
     log_weights <- sapply(model_names, function(name) {
-      eb_calculate_selection_score(
+      eb_calculate_posterior_kernel_score(
         beta_vec = current_beta,
         model_params = pre_optimized_params[[name]],
         X = X,
         y = y,
-        selection_score = selection_score,
         diagX = diagX
       )
     })
@@ -499,7 +492,6 @@ initialize_adaptive <- function(X, y,
     winning_params = pre_optimized_params[[winner_name]],
     winner_name = winner_name,
     model_probabilities = avg_probs,
-    selection_score = selection_score,
     pre_optimized_params = pre_optimized_params,
     pre_optimized_trajectories = pre_optimized_trajectories
   )
@@ -544,7 +536,7 @@ eb_initial_values <- function(X, y, epsilon = 1e-6,
 #' @param y n*1 response vector
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for omega and sigmaSq.
-#'   The Gibbs E-step uses phi = omega * b / a.
+#'   In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.
 #' @param init_method Method used to initialize omega and sigmaSq when explicit
 #'   initial guesses are not supplied. "ridge" uses a ridge regression residual
 #'   variance; "olasso" uses organic lasso.
@@ -555,10 +547,6 @@ eb_initial_values <- function(X, y, epsilon = 1e-6,
 #' @param candidates Candidate models and their initial a,b values.
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
 #' @param iter_burnin_selection Burn-in iterations for the model indicator chain.
-#' @param selection_score Score used in model competition.
-#'   "beta_prior" is the original marginal TPB beta density;
-#'   "posterior_kernel" is the unnormalized beta posterior kernel,
-#'   i.e. Gaussian likelihood plus marginal TPB beta density.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
 #' @param diagX Logical, assume diagonal X.
@@ -576,12 +564,9 @@ run_model_competition <- function(X, y,
                                   pre_opt_burnin = 200,
                                   pre_opt_samples = 200,
                                   iter_burnin_selection = 0,
-                                  selection_score = c("beta_prior",
-                                                      "posterior_kernel"),
                                   delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                   window_size = 5,
                                   diagX = FALSE) {
-  selection_score <- match.arg(selection_score)
   init_method <- match.arg(init_method)
   if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess)) {
     initial_values <- eb_initial_values(
@@ -607,7 +592,6 @@ run_model_competition <- function(X, y,
     iter_selection = iter_selection,
     woodbury = woodbury,
     candidates = candidates,
-    selection_score = selection_score,
     pre_opt_burnin = pre_opt_burnin,
     pre_opt_samples = pre_opt_samples,
     iter_burnin_selection = iter_burnin_selection,
@@ -619,7 +603,6 @@ run_model_competition <- function(X, y,
   list(
     winner = adaptive_result$winning_params,
     winner_name = adaptive_result$winner_name,
-    raw = adaptive_result,
-    selection_score = selection_score
+    raw = adaptive_result
   )
 }

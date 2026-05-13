@@ -1,4 +1,4 @@
-#' Fully Gibbs Sampler Function with IGIG Local Shrinkage
+#' Fully Gibbs Sampler Function with nu/lambda Local Shrinkage
 #'
 #' @import mvtnorm
 #' @import coda
@@ -81,9 +81,13 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   b       <- pmin(pmax(b, 1e-4), 1e4)
   phi     <- hyper_params$scale_phi
   phi     <- pmin(pmax(phi, 1e-4), 1e4) # 1
-  psi     <- rep(1, p)
-  zeta    <- rep(1, p)
-  beta    <- rnorm(p, mean = 0, sd = sqrt(phi * psi))
+  nu      <- rgamma(p, shape = 1, rate = 1)
+  lambda  <- rgamma(p, shape = 1, rate = 1)
+  xi      <- Gibbs_xi(p = p, a = a, nu = nu)
+  # fullGibbs samples the marginal TPB scale phi. The nu/lambda Gibbs
+  # conditionals use omega_local because marginal phi = omega_local * b / a.
+  omega_local <- phi * a / b
+  beta    <- rnorm(p, mean = 0, sd = sqrt(omega_local * nu / lambda))
 
   # Storage matrices
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
@@ -117,13 +121,20 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
 
 
   for (iter in 1:total_iter) {
+    # Convert the current marginal TPB scale to the local-scale variance
+    # parameter used by beta | nu, lambda.
+    omega_local <- phi * a / b
     beta <- Gibbs_beta(X = X, y = y, a = a, b = b,
-                       phi = phi, sigmaSq = sigmaSq, psi = psi,
+                       phi = omega_local, sigmaSq = sigmaSq,
+                       nu = nu, lambda = lambda,
                        woodbury = woodbury, diagX = diagX)
 
     sigmaSq <- Gibbs_sigmaSq(n, X, y, beta)
-    zeta <- Gibbs_zeta(p, a, b, psi)
-    psi <- Gibbs_psi(p, b, phi, beta, zeta)
+    nu <- Gibbs_nu(p = p, phi = omega_local, beta = beta, lambda = lambda,
+                   xi = xi, a = a)
+    xi <- Gibbs_xi(p = p, a = a, nu = nu)
+    lambda <- Gibbs_lambda(p = p, b = b, phi = omega_local,
+                           beta = beta, nu = nu)
 
     if (proposal_type == "separate"){
       a_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "a",
