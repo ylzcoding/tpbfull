@@ -13,7 +13,6 @@ initialize_adaptive(
   iter_selection,
   candidates,
   woodbury,
-  selection_score = c("beta_prior", "posterior_kernel"),
   pre_opt_burnin = 500,
   pre_opt_samples = 1000,
   iter_burnin_selection = 0,
@@ -32,7 +31,7 @@ initialize_adaptive(
 \item{X, y}{Model matrix and response vector.}
 
 \item{omega_init_guess, sigmaSq_init_guess}{Initial guesses for omega and sigmaSq.
-The Gibbs E-step uses phi = omega * b / a.}
+In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.}
 
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 

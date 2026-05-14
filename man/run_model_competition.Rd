@@ -14,12 +14,10 @@ run_model_competition(
   ridge_lambda = NULL,
   iter_selection = 5000,
   woodbury = TRUE,
-  candidates = list(hs = list(a = 0.5, b = 0.5), lasso = list(a = 1, b = 5), normal_gamma
-    = list(a = 0.5, b = 5), ridge = list(a = 5, b = 5)),
+  candidates = tpb_default_candidates(),
   pre_opt_burnin = 200,
   pre_opt_samples = 200,
   iter_burnin_selection = 0,
-  selection_score = c("beta_prior", "posterior_kernel"),
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
@@ -35,7 +33,7 @@ run_model_competition(
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 
 \item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for omega and sigmaSq.
-The Gibbs E-step uses phi = omega * b / a.}
+In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.}
 
 \item{init_method}{Method used to initialize omega and sigmaSq when explicit
 initial guesses are not supplied. "ridge" uses a ridge regression residual
@@ -53,11 +51,6 @@ sqrt(n) is used.}
 \item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
 
 \item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
-
-\item{selection_score}{Score used in model competition.
-"beta_prior" is the original marginal TPB beta density;
-"posterior_kernel" is the unnormalized beta posterior kernel,
-i.e. Gaussian likelihood plus marginal TPB beta density.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 

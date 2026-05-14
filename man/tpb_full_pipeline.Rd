@@ -24,9 +24,7 @@ tpb_full_pipeline(
   iter_selection = 5000,
   woodbury = TRUE,
   diagX = FALSE,
-  selection_score = c("beta_prior", "posterior_kernel"),
-  candidates = list(hs = list(a = 0.5, b = 0.5), lasso = list(a = 1, b = 5), normal_gamma
-    = list(a = 0.5, b = 5), ridge = list(a = 5, b = 5)),
+  candidates = tpb_default_candidates(),
   ...
 )
 }
@@ -66,12 +64,9 @@ sqrt(n) is used.}
 
 \item{diagX}{Logical, assume diagonal X}
 
-\item{selection_score}{Score used in stochastic model competition.
-"beta_prior" is the original marginal TPB beta density;
-"posterior_kernel" is the unnormalized beta posterior kernel,
-i.e. Gaussian likelihood plus marginal TPB beta density.}
-
-\item{candidates}{Candidate models used when auto_find = TRUE.}
+\item{candidates}{Candidate models used when auto_find = TRUE.
+This should be a named list; each entry must contain numeric a and b.
+The default is tpb_default_candidates().}
 
 \item{...}{Additional arguments passed to fullGibbs()}
 }

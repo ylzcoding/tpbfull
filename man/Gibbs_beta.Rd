@@ -2,22 +2,35 @@
 % Please edit documentation in R/Gibbs_beta.R
 \name{Gibbs_beta}
 \alias{Gibbs_beta}
-\title{draw posterior beta (a, b, phi parameterization)}
+\title{Draw posterior beta under the nu/lambda TPB augmentation}
 \usage{
-Gibbs_beta(X, y, a, b, phi, sigmaSq, psi, woodbury = FALSE, diagX = FALSE)
+Gibbs_beta(
+  X,
+  y,
+  a = NULL,
+  b = NULL,
+  phi = NULL,
+  sigmaSq = NULL,
+  nu = NULL,
+  lambda = NULL,
+  woodbury = FALSE,
+  diagX = FALSE,
+  omega = NULL
+)
 }
 \arguments{
 \item{X}{n*p design matrix}
 
 \item{y}{n*1 response vector}
 
-\item{phi}{global shrinkage parameter (scalar)}
+\item{phi}{Local beta variance scale. This is omega in the EB sampler,
+and phi * a / b inside the fully Bayesian sampler.}
 
 \item{sigmaSq}{error variance (scalar)}
 
-\item{psi}{p*1 local prior variance multiplier}
+\item{nu, lambda}{p*1 local-scale vectors}
 
-\item{woodbury}{binary logic variable, apply woodbury identity or not}
+\item{woodbury}{binary logic variable, apply Woodbury identity or not}
 
 \item{diagX}{binary logic variable, if TRUE assumes X is diagonal}
 }
@@ -25,5 +38,5 @@ Gibbs_beta(X, y, a, b, phi, sigmaSq, psi, woodbury = FALSE, diagX = FALSE)
 posterior vector beta
 }
 \description{
-draw posterior beta (a, b, phi parameterization)
+Draw posterior beta under the nu/lambda TPB augmentation
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/fullGibbs.R
 \name{fullGibbs}
 \alias{fullGibbs}
-\title{Fully Gibbs Sampler Function with IGIG Local Shrinkage}
+\title{Fully Gibbs Sampler Function with nu/lambda Local Shrinkage}
 \usage{
 fullGibbs(
   X,
@@ -12,7 +12,7 @@ fullGibbs(
   thin = 1,
   woodbury = TRUE,
   diagX = FALSE,
-  proposal_type = "separate",
+  proposal_type = "bi_adaptive",
   mh_step_a = 0.1,
   mh_step_b = 0.1,
   mh_step_phi = 0.1,
@@ -39,7 +39,7 @@ fullGibbs(
 
 \item{diagX}{Logical, assume diagonal X}
 
-\item{proposal_type}{String, "separate" or "adaptive".}
+\item{proposal_type}{String, "separate", "all_adaptive", or "bi_adaptive".}
 
 \item{mh_step_a}{Step size for the a update under the "separate" mode.}
 
@@ -63,5 +63,5 @@ beyond this distance are treated as self-loops.}
 A list containing posterior samples matrices, acceptance rates, covariance matrix.
 }
 \description{
-Fully Gibbs Sampler Function with IGIG Local Shrinkage
+Fully Gibbs Sampler Function with nu/lambda Local Shrinkage
 }
