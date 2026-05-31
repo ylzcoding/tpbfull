@@ -22,7 +22,6 @@ tpb_full_pipeline(
   init_method = c("ridge", "olasso"),
   ridge_lambda = NULL,
   selection_samples = 200,
-  selection_score = c("posterior", "prior"),
   IS_period = 1,
   min_em_ess_fraction = 0.1,
   woodbury = TRUE,
@@ -64,10 +63,6 @@ sqrt(n) is used.}
 
 \item{selection_samples}{Number of posterior samples per candidate used by
 the reverse-logistic selection stage.}
-
-\item{selection_score}{Score used in candidate selection. "prior" uses the
-marginal TPB beta density; "posterior" additionally includes the Gaussian
-likelihood with candidate sigmaSq.}
 
 \item{IS_period}{Pre-optimization EM resampling period. 1 runs a fresh Gibbs
 E-step every EM iteration; values above 1 reuse samples with importance

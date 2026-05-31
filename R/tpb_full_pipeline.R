@@ -18,9 +18,6 @@
 #'   sqrt(n) is used.
 #' @param selection_samples Number of posterior samples per candidate used by
 #'   the reverse-logistic selection stage.
-#' @param selection_score Score used in candidate selection. "prior" uses the
-#'   marginal TPB beta density; "posterior" additionally includes the Gaussian
-#'   likelihood with candidate sigmaSq.
 #' @param IS_period Pre-optimization EM resampling period. 1 runs a fresh Gibbs
 #'   E-step every EM iteration; values above 1 reuse samples with importance
 #'   weights between resampling iterations.
@@ -57,7 +54,6 @@ tpb_full_pipeline <- function(X, y,
                               init_method = c("ridge", "olasso"),
                               ridge_lambda = NULL,
                               selection_samples = 200,
-                              selection_score = c("posterior", "prior"),
                               IS_period = 1,
                               min_em_ess_fraction = 0.1,
                               woodbury = TRUE,
@@ -66,7 +62,6 @@ tpb_full_pipeline <- function(X, y,
                               verbose = TRUE,
                               ...) {
   init_method <- match.arg(init_method)
-  selection_score <- match.arg(selection_score)
   extra_args <- list(...)
   extra_names <- names(extra_args)
   if (is.null(extra_names)) {
@@ -74,7 +69,8 @@ tpb_full_pipeline <- function(X, y,
   }
   retired_selection_args <- intersect(
     extra_names,
-    c("iter_selection", "selection_method", "importance_method", "min_is_ess_fraction")
+    c("iter_selection", "selection_method", "importance_method",
+      "min_is_ess_fraction", "selection_score")
   )
   if (length(retired_selection_args) > 0) {
     stop(
@@ -111,7 +107,6 @@ tpb_full_pipeline <- function(X, y,
       init_method = init_method,
       ridge_lambda = ridge_lambda,
       selection_samples = selection_samples,
-      selection_score = selection_score,
       IS_period = IS_period,
       min_em_ess_fraction = min_em_ess_fraction,
       woodbury = woodbury,
@@ -252,7 +247,6 @@ tpb_full_pipeline <- function(X, y,
       winning_modes = winning_modes,
       model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
       selection_samples = if (is.null(competition_result)) NULL else competition_result$raw$selection_samples,
-      selection_score = if (is.null(competition_result)) NULL else competition_result$raw$selection_score,
       IS_period = if (is.null(competition_result)) NULL else competition_result$raw$IS_period,
       min_em_ess_fraction = if (is.null(competition_result)) NULL else competition_result$raw$min_em_ess_fraction,
       pre_optimized_trajectories = if (is.null(competition_result)) NULL else competition_result$raw$pre_optimized_trajectories,

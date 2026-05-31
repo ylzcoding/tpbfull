@@ -15,13 +15,8 @@ initialize_adaptive(
   pre_opt_burnin = 500,
   pre_opt_samples = 1000,
   selection_samples = 200,
-  selection_score = c("posterior", "prior"),
   IS_period = 1,
   min_em_ess_fraction = 0.1,
-  update_a = FALSE,
-  update_b = FALSE,
-  update_omega = TRUE,
-  update_sigmaSq = TRUE,
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
@@ -47,21 +42,12 @@ In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.}
 \item{selection_samples}{Number of posterior samples per candidate used by
 the reverse-logistic selection stage.}
 
-\item{selection_score}{Score used in candidate selection. "prior" uses the
-marginal TPB beta density, matching the original empirical selection idea;
-"posterior" additionally includes the Gaussian likelihood with candidate
-sigmaSq.}
-
 \item{IS_period}{Pre-optimization EM resampling period. 1 runs a fresh Gibbs
 E-step every EM iteration; values above 1 reuse samples with importance
 weights between resampling iterations.}
 
 \item{min_em_ess_fraction}{Minimum effective sample size fraction required
 to reuse pre-optimization EM samples with importance weights.}
-
-\item{update_a, update_b}{Logical, update TPB shape parameters during pre-optimization.}
-
-\item{update_omega, update_sigmaSq}{Logical, update omega and sigmaSq during pre-optimization.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 

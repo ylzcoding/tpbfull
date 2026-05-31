@@ -218,24 +218,6 @@ eb_em_importance_weights <- function(samples, target_params, source_params,
   list(weights = weights, ess = ess, log_weights = logw)
 }
 
-eb_weighted_m_step_ab <- function(sample_matrix, weights, current_value) {
-  weights <- as.numeric(weights)
-  x <- pmax(sample_matrix, .Machine$double.xmin)
-  w_sum <- sum(weights)
-  if (!is.finite(w_sum) || w_sum <= 0) {
-    return(eb_m_step_ab(sample_matrix, current_value))
-  }
-
-  mean_log_x <- sum(rowSums(log(x)) * weights) / (w_sum * ncol(x))
-  if (!is.finite(mean_log_x)) {
-    return(eb_positive_finite(current_value, 1e-6))
-  }
-
-  target <- log(eb_positive_finite(current_value, 1e-6)) + mean_log_x
-  candidate <- tryCatch(bzinb::idigamma(target), error = function(e) NA_real_)
-  eb_positive_finite(as.numeric(candidate), 1e-6)
-}
-
 eb_weighted_m_step_sigmaSq <- function(beta_matrix, weights, X, y,
                                        diagX = FALSE) {
   weights <- as.numeric(weights)
@@ -292,9 +274,7 @@ eb_softmax <- function(log_weights) {
 eb_precompute_selection_scores <- function(presampled_betas,
                                            pre_optimized_params,
                                            X, y,
-                                           diagX = FALSE,
-                                           selection_score = c("prior", "posterior")) {
-  selection_score <- match.arg(selection_score)
+                                           diagX = FALSE) {
   model_names <- names(pre_optimized_params)
   scores <- vector("list", length(model_names))
   names(scores) <- model_names
@@ -306,20 +286,13 @@ eb_precompute_selection_scores <- function(presampled_betas,
                         dimnames = list(NULL, model_names))
     for (target_name in model_names) {
       score_mat[, target_name] <- vapply(seq_len(n_s), function(i) {
-        if (selection_score == "prior") {
-          eb_calculate_marginal_loglik_beta(
-            beta_vec = beta_mat[i, ],
-            model_params = pre_optimized_params[[target_name]]
-          )
-        } else {
-          eb_calculate_posterior_kernel_score(
-            beta_vec = beta_mat[i, ],
-            model_params = pre_optimized_params[[target_name]],
-            X = X,
-            y = y,
-            diagX = diagX
-          )
-        }
+        eb_calculate_posterior_kernel_score(
+          beta_vec = beta_mat[i, ],
+          model_params = pre_optimized_params[[target_name]],
+          X = X,
+          y = y,
+          diagX = diagX
+        )
       }, numeric(1))
     }
     scores[[source_name]] <- score_mat
@@ -332,9 +305,7 @@ eb_reverse_logistic_selection <- function(presampled_betas,
                                           pre_optimized_params,
                                           X, y,
                                           diagX = FALSE,
-                                          kernel_scores = NULL,
-                                          selection_score = c("posterior", "prior")) {
-  selection_score <- match.arg(selection_score)
+                                          kernel_scores = NULL) {
   model_names <- names(pre_optimized_params)
   M <- length(model_names)
   if (M == 1) {
@@ -353,8 +324,7 @@ eb_reverse_logistic_selection <- function(presampled_betas,
       pre_optimized_params = pre_optimized_params,
       X = X,
       y = y,
-      diagX = diagX,
-      selection_score = selection_score
+      diagX = diagX
     )
   }
 
@@ -527,21 +497,6 @@ eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
   )
 }
 
-# ECM shape update used by the nu/lambda augmentation.
-# When updating the shape, the gamma rate is held at the current shape value.
-eb_m_step_ab <- function(sample_matrix, current_value) {
-  x <- pmax(as.numeric(sample_matrix), .Machine$double.xmin)
-  mean_log_x <- mean(log(x))
-
-  if (!is.finite(mean_log_x)) {
-    return(eb_positive_finite(current_value, 1e-6))
-  }
-
-  target <- log(eb_positive_finite(current_value, 1e-6)) + mean_log_x
-  candidate <- tryCatch(bzinb::idigamma(target), error = function(e) NA_real_)
-  eb_positive_finite(as.numeric(candidate), 1e-6)
-}
-
 eb_m_step_sigmaSq <- function(beta_matrix, X, y, diagX = FALSE) {
   y <- as.vector(y)
   n <- nrow(X)
@@ -577,10 +532,6 @@ eb_run_em_engine <- function(X, y,
                              delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                              window_size = 5,
                              woodbury = TRUE,
-                             update_a = TRUE,
-                             update_b = TRUE,
-                             update_omega = TRUE,
-                             update_sigmaSq = TRUE,
                              IS_period = 1,
                              min_em_ess_fraction = 0.1,
                              diagX = FALSE,
@@ -664,24 +615,12 @@ eb_run_em_engine <- function(X, y,
     }
 
     if (is.null(weights)) {
-      a_new <- if (update_a) eb_m_step_ab(samples$nu, a_vec[k]) else a_vec[k]
-      b_new <- if (update_b) eb_m_step_ab(samples$lambda, b_vec[k]) else b_vec[k]
-      sigmaSq_new <- if (update_sigmaSq) eb_m_step_sigmaSq(samples$beta, X, y, diagX) else sigmaSq_vec[k]
-      omega_new <- if (update_omega) {
-        eb_m_step_omega(samples$beta, samples$lambda, samples$nu)
-      } else {
-        omega_vec[k]
-      }
+      sigmaSq_new <- eb_m_step_sigmaSq(samples$beta, X, y, diagX)
+      omega_new <- eb_m_step_omega(samples$beta, samples$lambda, samples$nu)
       beta_hat <- colMeans(samples$beta)
     } else {
-      a_new <- if (update_a) eb_weighted_m_step_ab(samples$nu, weights, a_vec[k]) else a_vec[k]
-      b_new <- if (update_b) eb_weighted_m_step_ab(samples$lambda, weights, b_vec[k]) else b_vec[k]
-      sigmaSq_new <- if (update_sigmaSq) eb_weighted_m_step_sigmaSq(samples$beta, weights, X, y, diagX) else sigmaSq_vec[k]
-      omega_new <- if (update_omega) {
-        eb_weighted_m_step_omega(samples$beta, samples$lambda, samples$nu, weights)
-      } else {
-        omega_vec[k]
-      }
+      sigmaSq_new <- eb_weighted_m_step_sigmaSq(samples$beta, weights, X, y, diagX)
+      omega_new <- eb_weighted_m_step_omega(samples$beta, samples$lambda, samples$nu, weights)
       beta_hat <- colSums(sweep(samples$beta, 1, weights, FUN = "*")) / sum(weights)
     }
 
@@ -694,8 +633,8 @@ eb_run_em_engine <- function(X, y,
     )
     last_beta_hat <- beta_hat
 
-    a_vec <- c(a_vec, a_new)
-    b_vec <- c(b_vec, b_new)
+    a_vec <- c(a_vec, a_vec[k])
+    b_vec <- c(b_vec, b_vec[k])
     sigmaSq_vec <- c(sigmaSq_vec, sigmaSq_new)
     omega_vec <- c(omega_vec, omega_new)
 
@@ -751,10 +690,6 @@ eb_run_em_engine <- function(X, y,
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
 #' @param selection_samples Number of posterior samples per candidate used by
 #'   the reverse-logistic selection stage.
-#' @param selection_score Score used in candidate selection. "prior" uses the
-#'   marginal TPB beta density, matching the original empirical selection idea;
-#'   "posterior" additionally includes the Gaussian likelihood with candidate
-#'   sigmaSq.
 #' @param IS_period Pre-optimization EM resampling period. 1 runs a fresh Gibbs
 #'   E-step every EM iteration; values above 1 reuse samples with importance
 #'   weights between resampling iterations.
@@ -762,8 +697,6 @@ eb_run_em_engine <- function(X, y,
 #'   to reuse pre-optimization EM samples with importance weights.
 #' @param candidates Candidate models and their initial a,b values.
 #' @param woodbury Logical, use Woodbury identity in beta updates.
-#' @param update_a,update_b Logical, update TPB shape parameters during pre-optimization.
-#' @param update_omega,update_sigmaSq Logical, update omega and sigmaSq during pre-optimization.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
 #' @param diagX Logical, assume diagonal X.
@@ -778,17 +711,11 @@ initialize_adaptive <- function(X, y,
                                 pre_opt_burnin = 500,
                                 pre_opt_samples = 1000,
                                 selection_samples = 200,
-                                selection_score = c("posterior", "prior"),
                                 IS_period = 1,
                                 min_em_ess_fraction = 0.1,
-                                update_a = FALSE,
-                                update_b = FALSE,
-                                update_omega = TRUE,
-                                update_sigmaSq = TRUE,
                                 delta1 = 1e-6, delta2 = 1e-3, delta3 = 1e-3,
                                 window_size = 5, diagX = FALSE,
                                 verbose = TRUE) {
-  selection_score <- match.arg(selection_score)
   selection_samples <- as.integer(selection_samples)
   if (!is.finite(selection_samples) || selection_samples < 1) {
     stop("selection_samples must be a positive integer.")
@@ -827,10 +754,6 @@ initialize_adaptive <- function(X, y,
         b_init = candidate_ab$b,
         omega_init = omega_init_guess,
         sigmaSq_init = sigmaSq_init_guess,
-        update_a = update_a,
-        update_b = update_b,
-        update_omega = update_omega,
-        update_sigmaSq = update_sigmaSq,
         verbose = verbose
       ),
       engine_args
@@ -868,8 +791,7 @@ initialize_adaptive <- function(X, y,
     pre_optimized_params = pre_optimized_params,
     X = X,
     y = y,
-    diagX = diagX,
-    selection_score = selection_score
+    diagX = diagX
   )
 
   importance_result <- eb_reverse_logistic_selection(
@@ -878,8 +800,7 @@ initialize_adaptive <- function(X, y,
     X = X,
     y = y,
     diagX = diagX,
-    kernel_scores = selection_scores,
-    selection_score = selection_score
+    kernel_scores = selection_scores
   )
   avg_probs <- importance_result$model_probabilities
   winner_name <- names(which.max(avg_probs))
@@ -891,7 +812,6 @@ initialize_adaptive <- function(X, y,
     pre_optimized_params = pre_optimized_params,
     pre_optimized_trajectories = pre_optimized_trajectories,
     selection_samples = selection_samples,
-    selection_score = selection_score,
     IS_period = IS_period,
     min_em_ess_fraction = min_em_ess_fraction,
     importance = importance_result
@@ -945,9 +865,6 @@ eb_initial_values <- function(X, y, epsilon = 1e-6,
 #'   sqrt(n) is used.
 #' @param selection_samples Number of posterior samples per candidate used by
 #'   the reverse-logistic selection stage.
-#' @param selection_score Score used in candidate selection. "prior" uses the
-#'   marginal TPB beta density; "posterior" additionally includes the Gaussian
-#'   likelihood with candidate sigmaSq.
 #' @param IS_period Pre-optimization EM resampling period. 1 runs a fresh Gibbs
 #'   E-step every EM iteration; values above 1 reuse samples with importance
 #'   weights between resampling iterations.
@@ -969,7 +886,6 @@ run_model_competition <- function(X, y,
                                   init_method = c("ridge", "olasso"),
                                   ridge_lambda = NULL,
                                   selection_samples = 200,
-                                  selection_score = c("posterior", "prior"),
                                   IS_period = 1,
                                   min_em_ess_fraction = 0.1,
                                   woodbury = TRUE,
@@ -981,7 +897,6 @@ run_model_competition <- function(X, y,
                                   diagX = FALSE,
                                   verbose = TRUE) {
   init_method <- match.arg(init_method)
-  selection_score <- match.arg(selection_score)
   if (is.null(omega_init_guess) || is.null(sigmaSq_init_guess)) {
     initial_values <- eb_initial_values(
       X = X, y = y,
@@ -1004,7 +919,6 @@ run_model_competition <- function(X, y,
     sigmaSq_init_guess = sigmaSq_init_guess,
     iter_pre_opt = iter_pre_opt,
     selection_samples = selection_samples,
-    selection_score = selection_score,
     IS_period = IS_period,
     min_em_ess_fraction = min_em_ess_fraction,
     woodbury = woodbury,
