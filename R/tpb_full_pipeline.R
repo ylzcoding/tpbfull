@@ -16,12 +16,22 @@
 #'   "olasso" uses organic lasso.
 #' @param ridge_lambda Ridge penalty used when init_method = "ridge". If NULL,
 #'   sqrt(n) is used.
-#' @param iter_selection Number of post-burn-in samples for model selection
+#' @param selection_samples Number of posterior samples per candidate used by
+#'   the reverse-logistic selection stage.
+#' @param selection_score Score used in candidate selection. "prior" uses the
+#'   marginal TPB beta density; "posterior" additionally includes the Gaussian
+#'   likelihood with candidate sigmaSq.
+#' @param IS_period Pre-optimization EM resampling period. 1 runs a fresh Gibbs
+#'   E-step every EM iteration; values above 1 reuse samples with importance
+#'   weights between resampling iterations.
+#' @param min_em_ess_fraction Minimum effective sample size fraction required
+#'   to reuse pre-optimization EM samples with importance weights.
 #' @param woodbury Logical, use Woodbury identity in both model competition and full Gibbs sampling
 #' @param diagX Logical, assume diagonal X
 #' @param candidates Candidate models used when auto_find = TRUE.
 #'   This should be a named list; each entry must contain numeric a and b.
 #'   The default is tpb_default_candidates().
+#' @param verbose Logical, print model competition progress messages.
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
 #'   hyperparameters used, and optional EB competition metadata.
@@ -35,10 +45,6 @@ tpb_full_pipeline <- function(X, y,
                                                   s_b = 1.5, r_b = 1,
                                                   scale_a = 1,
                                                   scale_b = 1,
-                                                  lower_a = 0.01,
-                                                  upper_a = 10,
-                                                  lower_b = 0.01,
-                                                  upper_b = 10,
                                                   scale_phi = NULL),
                               num_iter = 100000,
                               num_warmup = 25000,
@@ -50,12 +56,33 @@ tpb_full_pipeline <- function(X, y,
                               sigmaSq_init_guess = NULL,
                               init_method = c("ridge", "olasso"),
                               ridge_lambda = NULL,
-                              iter_selection = 5000,
+                              selection_samples = 200,
+                              selection_score = c("posterior", "prior"),
+                              IS_period = 1,
+                              min_em_ess_fraction = 0.1,
                               woodbury = TRUE,
                               diagX = FALSE,
                               candidates = tpb_default_candidates(),
+                              verbose = TRUE,
                               ...) {
   init_method <- match.arg(init_method)
+  selection_score <- match.arg(selection_score)
+  extra_args <- list(...)
+  extra_names <- names(extra_args)
+  if (is.null(extra_names)) {
+    extra_names <- character(0)
+  }
+  retired_selection_args <- intersect(
+    extra_names,
+    c("iter_selection", "selection_method", "importance_method", "min_is_ess_fraction")
+  )
+  if (length(retired_selection_args) > 0) {
+    stop(
+      "These candidate-selection arguments were removed: ",
+      paste(retired_selection_args, collapse = ", "),
+      ". Use selection_samples for reverse-logistic selection."
+    )
+  }
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -66,8 +93,6 @@ tpb_full_pipeline <- function(X, y,
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
          scale_a = 1, scale_b = 1,
-         lower_a = 0.01, upper_a = 10,
-         lower_b = 0.01, upper_b = 10,
          scale_phi = NULL),
     hyper_params
   )
@@ -85,10 +110,14 @@ tpb_full_pipeline <- function(X, y,
       sigmaSq_init_guess = sigmaSq_init_guess,
       init_method = init_method,
       ridge_lambda = ridge_lambda,
-      iter_selection = iter_selection,
+      selection_samples = selection_samples,
+      selection_score = selection_score,
+      IS_period = IS_period,
+      min_em_ess_fraction = min_em_ess_fraction,
       woodbury = woodbury,
       diagX = diagX,
-      candidates = candidates
+      candidates = candidates,
+      verbose = verbose
     )
     winning_modes <- list(
       a = competition_result$winner$a,
@@ -221,7 +250,13 @@ tpb_full_pipeline <- function(X, y,
       enabled = isTRUE(auto_find),
       winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
       winning_modes = winning_modes,
-      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities
+      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
+      selection_samples = if (is.null(competition_result)) NULL else competition_result$raw$selection_samples,
+      selection_score = if (is.null(competition_result)) NULL else competition_result$raw$selection_score,
+      IS_period = if (is.null(competition_result)) NULL else competition_result$raw$IS_period,
+      min_em_ess_fraction = if (is.null(competition_result)) NULL else competition_result$raw$min_em_ess_fraction,
+      pre_optimized_trajectories = if (is.null(competition_result)) NULL else competition_result$raw$pre_optimized_trajectories,
+      importance = if (is.null(competition_result)) NULL else competition_result$raw$importance
     )
   )
 }

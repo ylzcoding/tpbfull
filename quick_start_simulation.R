@@ -76,7 +76,7 @@ data <- sparse_data_gen(
 )
 
 # The empirical-Bayes competition first selects a candidate (a,b), then the
-# stochastic winner score is the unnormalized beta posterior kernel,
+# reverse-logistic winner score is the unnormalized beta posterior kernel,
 # log p(y | X, beta, sigmaSq) + log p(beta | a, b, phi). The
 # fully Bayesian sampler uses Gamma priors centered at the winning values.
 # By default, sigmaSq and omega are initialized from a ridge fit. Use
@@ -93,7 +93,7 @@ fit <- tpb_full_pipeline(
   iter_pre_opt = 20,
   pre_opt_burnin = 50,
   pre_opt_samples = 50,
-  iter_selection = 500,
+  selection_samples = 100,
   woodbury = TRUE
 )
 

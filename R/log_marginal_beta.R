@@ -9,12 +9,10 @@
 #' @param r_prior_a Prior rate parameter for a.
 #' @param s_prior_b Prior shape parameter for b.
 #' @param r_prior_b Prior rate parameter for b.
-#' @param prior_type_a prior type for a: "gamma", "hcauchy", or "uniform"
-#' @param prior_type_b prior type for b: "gamma", "hcauchy", or "uniform"
+#' @param prior_type_a prior type for a: "gamma" or "hcauchy"
+#' @param prior_type_b prior type for b: "gamma" or "hcauchy"
 #' @param scale_a Half-Cauchy scale parameter for a
 #' @param scale_b Half-Cauchy scale parameter for b
-#' @param lower_a,upper_a Uniform prior support for a
-#' @param lower_b,upper_b Uniform prior support for b
 #' @param scale_phi Half-Cauchy scale parameter for phi.
 log_marginal_posterior <- function(a, b, phi, beta_vec,
                                    s_prior_a, r_prior_a,
@@ -23,24 +21,14 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
                                    prior_type_a = "gamma",
                                    prior_type_b = "gamma",
                                    scale_a = 1,
-                                   scale_b = 1,
-                                   lower_a = 0.01,
-                                   upper_a = 10,
-                                   lower_b = 0.01,
-                                   upper_b = 10) {
+                                   scale_b = 1) {
 
   p <- length(beta_vec)
-  prior_type_a <- match.arg(prior_type_a, c("gamma", "hcauchy", "uniform"))
-  prior_type_b <- match.arg(prior_type_b, c("gamma", "hcauchy", "uniform"))
+  prior_type_a <- match.arg(prior_type_a, c("gamma", "hcauchy"))
+  prior_type_b <- match.arg(prior_type_b, c("gamma", "hcauchy"))
 
   if (!is.finite(a) || !is.finite(b) || !is.finite(phi) ||
       a <= 0 || b <= 0 || phi <= 0) {
-    return(list(log_posterior = -Inf, log_lik = -Inf))
-  }
-  if ((prior_type_a == "uniform" &&
-       (!is.finite(lower_a) || !is.finite(upper_a) || lower_a <= 0 || lower_a >= upper_a)) ||
-      (prior_type_b == "uniform" &&
-       (!is.finite(lower_b) || !is.finite(upper_b) || lower_b <= 0 || lower_b >= upper_b))) {
     return(list(log_posterior = -Inf, log_lik = -Inf))
   }
 
@@ -84,22 +72,12 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
   log_prior_a <- switch(
     prior_type_a,
     gamma = (s_prior_a - 1) * log(a) - r_prior_a * a,
-    hcauchy = -log(1 + (a / scale_a)^2),
-    uniform = if (a >= lower_a && a <= upper_a) {
-      -log(upper_a - lower_a)
-    } else {
-      -Inf
-    }
+    hcauchy = -log(1 + (a / scale_a)^2)
   )
   log_prior_b <- switch(
     prior_type_b,
     gamma = (s_prior_b - 1) * log(b) - r_prior_b * b,
-    hcauchy = -log(1 + (b / scale_b)^2),
-    uniform = if (b >= lower_b && b <= upper_b) {
-      -log(upper_b - lower_b)
-    } else {
-      -Inf
-    }
+    hcauchy = -log(1 + (b / scale_b)^2)
   )
   # phi ~ Half-Cauchy(0, scale_phi)
   log_prior_phi <- -log(1 + (phi / scale_phi)^2)

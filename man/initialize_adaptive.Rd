@@ -10,12 +10,14 @@ initialize_adaptive(
   omega_init_guess,
   sigmaSq_init_guess,
   iter_pre_opt,
-  iter_selection,
   candidates,
   woodbury,
   pre_opt_burnin = 500,
   pre_opt_samples = 1000,
-  iter_burnin_selection = 0,
+  selection_samples = 200,
+  selection_score = c("posterior", "prior"),
+  IS_period = 1,
+  min_em_ess_fraction = 0.1,
   update_a = FALSE,
   update_b = FALSE,
   update_omega = TRUE,
@@ -24,7 +26,8 @@ initialize_adaptive(
   delta2 = 0.001,
   delta3 = 0.001,
   window_size = 5,
-  diagX = FALSE
+  diagX = FALSE,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -35,15 +38,26 @@ In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.}
 
 \item{iter_pre_opt}{Iterations for the pre-optimization EM stage for each candidate.}
 
-\item{iter_selection}{Number of post-burn-in samples for model selection.}
-
 \item{candidates}{Candidate models and their initial a,b values.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
 \item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
 
-\item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
+\item{selection_samples}{Number of posterior samples per candidate used by
+the reverse-logistic selection stage.}
+
+\item{selection_score}{Score used in candidate selection. "prior" uses the
+marginal TPB beta density, matching the original empirical selection idea;
+"posterior" additionally includes the Gaussian likelihood with candidate
+sigmaSq.}
+
+\item{IS_period}{Pre-optimization EM resampling period. 1 runs a fresh Gibbs
+E-step every EM iteration; values above 1 reuse samples with importance
+weights between resampling iterations.}
+
+\item{min_em_ess_fraction}{Minimum effective sample size fraction required
+to reuse pre-optimization EM samples with importance weights.}
 
 \item{update_a, update_b}{Logical, update TPB shape parameters during pre-optimization.}
 
@@ -54,6 +68,8 @@ In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.}
 \item{window_size}{Size of the convergence window.}
 
 \item{diagX}{Logical, assume diagonal X.}
+
+\item{verbose}{Logical, print EM and selection progress messages.}
 }
 \value{
 A list containing winning_params and winner_name.

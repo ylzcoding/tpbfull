@@ -9,10 +9,6 @@ run_marginal_mh_uni <- function(beta_vec, target_param,
                                 prior_type_b = "gamma",
                                 scale_a = 1,
                                 scale_b = 1,
-                                lower_a = 0.01,
-                                upper_a = 10,
-                                lower_b = 0.01,
-                                upper_b = 10,
                                 mh_step = 0.1,
                                 max_log_mh_step = Inf) {
 
@@ -27,8 +23,7 @@ run_marginal_mh_uni <- function(beta_vec, target_param,
       abs(log_new_val - log_current_val) > max_log_mh_step) {
     old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
                                        s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                       prior_type_a, prior_type_b, scale_a, scale_b,
-                                       lower_a, upper_a, lower_b, upper_b)
+                                       prior_type_a, prior_type_b, scale_a, scale_b)
     return(list(value = current_val, log_lik = old_eval$log_lik,
                 total_logpost = old_eval$log_posterior, accepted = FALSE))
   }
@@ -40,12 +35,10 @@ run_marginal_mh_uni <- function(beta_vec, target_param,
 
   old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
                                      s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                     prior_type_a, prior_type_b, scale_a, scale_b,
-                                     lower_a, upper_a, lower_b, upper_b)
+                                     prior_type_a, prior_type_b, scale_a, scale_b)
   new_eval <- log_marginal_posterior(a_new, b_new, phi_new, beta_vec,
                                      s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                     prior_type_a, prior_type_b, scale_a, scale_b,
-                                     lower_a, upper_a, lower_b, upper_b)
+                                     prior_type_a, prior_type_b, scale_a, scale_b)
 
   log_r <- new_eval$log_posterior - old_eval$log_posterior + log(new_val) - log(current_val)
 
@@ -64,10 +57,6 @@ run_marginal_mh_bi_a_phi <- function(beta_vec, current_a, current_b, current_phi
                                      prior_type_b = "gamma",
                                      scale_a = 1,
                                      scale_b = 1,
-                                     lower_a = 0.01,
-                                     upper_a = 10,
-                                     lower_b = 0.01,
-                                     upper_b = 10,
                                      cov_matrix = matrix(c(0.01, -0.005, -0.005, 0.01), 2, 2),
                                      max_log_mh_step = Inf) {
 
@@ -77,8 +66,7 @@ run_marginal_mh_bi_a_phi <- function(beta_vec, current_a, current_b, current_phi
       any(abs(log_new - log_cur) > max_log_mh_step)) {
     old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
                                        s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                       prior_type_a, prior_type_b, scale_a, scale_b,
-                                       lower_a, upper_a, lower_b, upper_b)
+                                       prior_type_a, prior_type_b, scale_a, scale_b)
     return(list(a = current_a, phi = current_phi, accepted = FALSE,
                 log_lik = old_eval$log_lik,
                 total_logpost = old_eval$log_posterior))
@@ -89,12 +77,10 @@ run_marginal_mh_bi_a_phi <- function(beta_vec, current_a, current_b, current_phi
 
   old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
                                      s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                     prior_type_a, prior_type_b, scale_a, scale_b,
-                                     lower_a, upper_a, lower_b, upper_b)
+                                     prior_type_a, prior_type_b, scale_a, scale_b)
   new_eval <- log_marginal_posterior(a_new, current_b, phi_new, beta_vec,
                                      s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                     prior_type_a, prior_type_b, scale_a, scale_b,
-                                     lower_a, upper_a, lower_b, upper_b)
+                                     prior_type_a, prior_type_b, scale_a, scale_b)
 
   log_r <- new_eval$log_posterior - old_eval$log_posterior + (log_new[1] - log_cur[1]) + (log_new[2] - log_cur[2])
 
@@ -111,10 +97,6 @@ run_marginal_mh_tri_a_b_phi <- function(beta_vec, current_a, current_b, current_
                                         prior_type_b = "gamma",
                                         scale_a = 1,
                                         scale_b = 1,
-                                        lower_a = 0.01,
-                                        upper_a = 10,
-                                        lower_b = 0.01,
-                                        upper_b = 10,
                                         cov_matrix = diag(3) * 0.01,
                                         max_log_mh_step = Inf) {
 
@@ -124,8 +106,7 @@ run_marginal_mh_tri_a_b_phi <- function(beta_vec, current_a, current_b, current_
       any(abs(log_new - log_cur) > max_log_mh_step)) {
     old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
                                        s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                       prior_type_a, prior_type_b, scale_a, scale_b,
-                                       lower_a, upper_a, lower_b, upper_b)
+                                       prior_type_a, prior_type_b, scale_a, scale_b)
     return(list(a = current_a, b = current_b, phi = current_phi,
                 accepted = FALSE, log_lik = old_eval$log_lik,
                 total_logpost = old_eval$log_posterior))
@@ -137,12 +118,10 @@ run_marginal_mh_tri_a_b_phi <- function(beta_vec, current_a, current_b, current_
 
   old_eval <- log_marginal_posterior(current_a, current_b, current_phi, beta_vec,
                                      s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                     prior_type_a, prior_type_b, scale_a, scale_b,
-                                     lower_a, upper_a, lower_b, upper_b)
+                                     prior_type_a, prior_type_b, scale_a, scale_b)
   new_eval <- log_marginal_posterior(a_new, b_new, phi_new, beta_vec,
                                      s_prior_a, r_prior_a, s_prior_b, r_prior_b, scale_phi,
-                                     prior_type_a, prior_type_b, scale_a, scale_b,
-                                     lower_a, upper_a, lower_b, upper_b)
+                                     prior_type_a, prior_type_b, scale_a, scale_b)
 
   log_r <- new_eval$log_posterior - old_eval$log_posterior + (log_new[1] - log_cur[1]) + (log_new[2] - log_cur[2]) + (log_new[3] - log_cur[3])
 

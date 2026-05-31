@@ -12,17 +12,20 @@ run_model_competition(
   sigmaSq_init_guess = NULL,
   init_method = c("ridge", "olasso"),
   ridge_lambda = NULL,
-  iter_selection = 5000,
+  selection_samples = 200,
+  selection_score = c("posterior", "prior"),
+  IS_period = 1,
+  min_em_ess_fraction = 0.1,
   woodbury = TRUE,
   candidates = tpb_default_candidates(),
   pre_opt_burnin = 200,
   pre_opt_samples = 200,
-  iter_burnin_selection = 0,
   delta1 = 1e-06,
   delta2 = 0.001,
   delta3 = 0.001,
   window_size = 5,
-  diagX = FALSE
+  diagX = FALSE,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -42,7 +45,19 @@ variance; "olasso" uses organic lasso.}
 \item{ridge_lambda}{Ridge penalty used when init_method = "ridge". If NULL,
 sqrt(n) is used.}
 
-\item{iter_selection}{Number of post-burn-in samples for model selection.}
+\item{selection_samples}{Number of posterior samples per candidate used by
+the reverse-logistic selection stage.}
+
+\item{selection_score}{Score used in candidate selection. "prior" uses the
+marginal TPB beta density; "posterior" additionally includes the Gaussian
+likelihood with candidate sigmaSq.}
+
+\item{IS_period}{Pre-optimization EM resampling period. 1 runs a fresh Gibbs
+E-step every EM iteration; values above 1 reuse samples with importance
+weights between resampling iterations.}
+
+\item{min_em_ess_fraction}{Minimum effective sample size fraction required
+to reuse pre-optimization EM samples with importance weights.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
@@ -50,13 +65,13 @@ sqrt(n) is used.}
 
 \item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
 
-\item{iter_burnin_selection}{Burn-in iterations for the model indicator chain.}
-
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 
 \item{window_size}{Size of the convergence window.}
 
 \item{diagX}{Logical, assume diagonal X.}
+
+\item{verbose}{Logical, print EM and selection progress messages.}
 }
 \value{
 A list with winner, winner_name, and raw adaptive competition output.

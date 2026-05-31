@@ -14,7 +14,7 @@
 #'   The default IG(1.5, 0.5) matches the variance prior used in the other
 #'   baseline samplers in these simulations.
 #' @param woodbury Use the fast p > n Gaussian update.
-#' @param seed 
+#' @param seed Optional RNG seed.
 #' @return A list containing posterior beta samples and scalar traces.
 #' @export
 dl_regression <- function(X, y,

@@ -10,7 +10,7 @@ tpb_full_pipeline(
   num_chains = 4,
   auto_find = TRUE,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1),
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = NULL),
   num_iter = 1e+05,
   num_warmup = 25000,
   thinning = 1,
@@ -21,10 +21,14 @@ tpb_full_pipeline(
   sigmaSq_init_guess = NULL,
   init_method = c("ridge", "olasso"),
   ridge_lambda = NULL,
-  iter_selection = 5000,
+  selection_samples = 200,
+  selection_score = c("posterior", "prior"),
+  IS_period = 1,
+  min_em_ess_fraction = 0.1,
   woodbury = TRUE,
   diagX = FALSE,
   candidates = tpb_default_candidates(),
+  verbose = TRUE,
   ...
 )
 }
@@ -58,7 +62,19 @@ explicit initial guesses are not supplied. "ridge" uses ridge regression;
 \item{ridge_lambda}{Ridge penalty used when init_method = "ridge". If NULL,
 sqrt(n) is used.}
 
-\item{iter_selection}{Number of post-burn-in samples for model selection}
+\item{selection_samples}{Number of posterior samples per candidate used by
+the reverse-logistic selection stage.}
+
+\item{selection_score}{Score used in candidate selection. "prior" uses the
+marginal TPB beta density; "posterior" additionally includes the Gaussian
+likelihood with candidate sigmaSq.}
+
+\item{IS_period}{Pre-optimization EM resampling period. 1 runs a fresh Gibbs
+E-step every EM iteration; values above 1 reuse samples with importance
+weights between resampling iterations.}
+
+\item{min_em_ess_fraction}{Minimum effective sample size fraction required
+to reuse pre-optimization EM samples with importance weights.}
 
 \item{woodbury}{Logical, use Woodbury identity in both model competition and full Gibbs sampling}
 
@@ -67,6 +83,8 @@ sqrt(n) is used.}
 \item{candidates}{Candidate models used when auto_find = TRUE.
 This should be a named list; each entry must contain numeric a and b.
 The default is tpb_default_candidates().}
+
+\item{verbose}{Logical, print model competition progress messages.}
 
 \item{...}{Additional arguments passed to fullGibbs()}
 }

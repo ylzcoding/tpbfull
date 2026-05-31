@@ -20,8 +20,8 @@
 #' @param max_log_mh_step Maximum single proposal move on the log scale. Proposals
 #'   beyond this distance are treated as self-loops.
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b,
-#'   s_a, r_a, s_b, r_b, scale_a, scale_b, lower_a, upper_a, lower_b, upper_b,
-#'   scale_phi). If scale_phi is NULL, tpb_default_scale_phi() is used.
+#'   s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL,
+#'   tpb_default_scale_phi() is used.
 #' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
 #' @export
 fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
@@ -33,8 +33,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
                                           scale_a = 1, scale_b = 1,
-                                          lower_a = 0.01, upper_a = 10,
-                                          lower_b = 0.01, upper_b = 10,
                                           scale_phi = NULL)) {
 
   n <- nrow(X)
@@ -45,23 +43,11 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
          scale_a = 1, scale_b = 1,
-         lower_a = 0.01, upper_a = 10,
-         lower_b = 0.01, upper_b = 10,
          scale_phi = NULL),
     hyper_params
   )
-  hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy", "uniform"))
-  hyper_params$prior_type_b <- match.arg(hyper_params$prior_type_b, c("gamma", "hcauchy", "uniform"))
-  if (hyper_params$prior_type_a == "uniform" &&
-      (!is.finite(hyper_params$lower_a) || !is.finite(hyper_params$upper_a) ||
-       hyper_params$lower_a <= 0 || hyper_params$lower_a >= hyper_params$upper_a)) {
-    stop("For prior_type_a = 'uniform', require 0 < lower_a < upper_a.")
-  }
-  if (hyper_params$prior_type_b == "uniform" &&
-      (!is.finite(hyper_params$lower_b) || !is.finite(hyper_params$upper_b) ||
-       hyper_params$lower_b <= 0 || hyper_params$lower_b >= hyper_params$upper_b)) {
-    stop("For prior_type_b = 'uniform', require 0 < lower_b < upper_b.")
-  }
+  hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))
+  hyper_params$prior_type_b <- match.arg(hyper_params$prior_type_b, c("gamma", "hcauchy"))
   if (is.null(hyper_params$scale_phi) ||
       !is.finite(hyper_params$scale_phi) ||
       hyper_params$scale_phi <= 0) {
@@ -96,14 +82,12 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   a       <- switch(
     hyper_params$prior_type_a,
     gamma = rgamma(1, shape = hyper_params$s_a, rate = hyper_params$r_a),
-    hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_a)),
-    uniform = runif(1, min = hyper_params$lower_a, max = hyper_params$upper_a)
+    hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_a))
   )
   b       <- switch(
     hyper_params$prior_type_b,
     gamma = rgamma(1, shape = hyper_params$s_b, rate = hyper_params$r_b),
-    hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_b)),
-    uniform = runif(1, min = hyper_params$lower_b, max = hyper_params$upper_b)
+    hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_b))
   )
   phi     <- hyper_params$scale_phi
   nu      <- rgamma(p, shape = 1, rate = 1)
@@ -171,10 +155,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    prior_type_b = hyper_params$prior_type_b,
                                    scale_a = hyper_params$scale_a,
                                    scale_b = hyper_params$scale_b,
-                                   lower_a = hyper_params$lower_a,
-                                   upper_a = hyper_params$upper_a,
-                                   lower_b = hyper_params$lower_b,
-                                   upper_b = hyper_params$upper_b,
                                    mh_step = mh_step_a,
                                    max_log_mh_step = max_log_mh_step)
       if (a_new$accepted) {accept_count_a <- accept_count_a + 1}
@@ -191,10 +171,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    prior_type_b = hyper_params$prior_type_b,
                                    scale_a = hyper_params$scale_a,
                                    scale_b = hyper_params$scale_b,
-                                   lower_a = hyper_params$lower_a,
-                                   upper_a = hyper_params$upper_a,
-                                   lower_b = hyper_params$lower_b,
-                                   upper_b = hyper_params$upper_b,
                                    mh_step = mh_step_b,
                                    max_log_mh_step = max_log_mh_step)
       if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
@@ -211,10 +187,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                      prior_type_b = hyper_params$prior_type_b,
                                      scale_a = hyper_params$scale_a,
                                      scale_b = hyper_params$scale_b,
-                                     lower_a = hyper_params$lower_a,
-                                     upper_a = hyper_params$upper_a,
-                                     lower_b = hyper_params$lower_b,
-                                     upper_b = hyper_params$upper_b,
                                      mh_step = mh_step_phi,
                                      max_log_mh_step = max_log_mh_step)
       if (phi_new$accepted) {accept_count_phi <- accept_count_phi + 1}
@@ -230,10 +202,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                                  prior_type_b = hyper_params$prior_type_b,
                                                  scale_a = hyper_params$scale_a,
                                                  scale_b = hyper_params$scale_b,
-                                                 lower_a = hyper_params$lower_a,
-                                                 upper_a = hyper_params$upper_a,
-                                                 lower_b = hyper_params$lower_b,
-                                                 upper_b = hyper_params$upper_b,
                                                  cov_matrix = current_proposal_cov,
                                                  max_log_mh_step = max_log_mh_step)
       if (a_b_phi_new$accepted) {
@@ -273,10 +241,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                             prior_type_b = hyper_params$prior_type_b,
                                             scale_a = hyper_params$scale_a,
                                             scale_b = hyper_params$scale_b,
-                                            lower_a = hyper_params$lower_a,
-                                            upper_a = hyper_params$upper_a,
-                                            lower_b = hyper_params$lower_b,
-                                            upper_b = hyper_params$upper_b,
                                             cov_matrix = current_proposal_cov,
                                             max_log_mh_step = max_log_mh_step)
       if (a_phi_new$accepted) {
@@ -297,10 +261,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                                    prior_type_b = hyper_params$prior_type_b,
                                    scale_a = hyper_params$scale_a,
                                    scale_b = hyper_params$scale_b,
-                                   lower_a = hyper_params$lower_a,
-                                   upper_a = hyper_params$upper_a,
-                                   lower_b = hyper_params$lower_b,
-                                   upper_b = hyper_params$upper_b,
                                    mh_step = mh_step_b,
                                    max_log_mh_step = max_log_mh_step)
       if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
