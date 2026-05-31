@@ -35,6 +35,10 @@ tpb_full_pipeline <- function(X, y,
                                                   s_b = 1.5, r_b = 1,
                                                   scale_a = 1,
                                                   scale_b = 1,
+                                                  lower_a = 0.01,
+                                                  upper_a = 10,
+                                                  lower_b = 0.01,
+                                                  upper_b = 10,
                                                   scale_phi = NULL),
                               num_iter = 100000,
                               num_warmup = 25000,
@@ -61,7 +65,10 @@ tpb_full_pipeline <- function(X, y,
   final_hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
-         scale_a = 1, scale_b = 1, scale_phi = NULL),
+         scale_a = 1, scale_b = 1,
+         lower_a = 0.01, upper_a = 10,
+         lower_b = 0.01, upper_b = 10,
+         scale_phi = NULL),
     hyper_params
   )
 
@@ -140,8 +147,8 @@ tpb_full_pipeline <- function(X, y,
     chains_loglik[[i]] <- chain_res$samples$beta_loglik
     chains_logpost[[i]] <- chain_res$samples$total_logpost
     chains_accept[[i]] <- unlist(chain_res$acceptance_rates[c("a", "b", "phi")])
-    chains_cov[[i]] <- chain_res$final_proposal_cov
-    chains_scale[[i]] <- chain_res$final_scale_factor
+    chains_cov[i] <- list(chain_res$final_proposal_cov)
+    chains_scale[i] <- list(chain_res$final_scale_factor)
 
     rm(chain_res)
   }
