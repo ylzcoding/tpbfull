@@ -20,7 +20,8 @@
 #' @param max_log_mh_step Maximum single proposal move on the log scale. Proposals
 #'   beyond this distance are treated as self-loops.
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b,
-#'   s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi).
+#'   s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL,
+#'   tpb_default_scale_phi() is used.
 #' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
 #' @export
 fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
@@ -32,7 +33,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
                                           scale_a = 1, scale_b = 1,
-                                          scale_phi = 1)) {
+                                          scale_phi = NULL)) {
 
   n <- nrow(X)
   p <- ncol(X)
@@ -42,7 +43,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
          scale_a = 1, scale_b = 1,
-         scale_phi = 1),
+         scale_phi = NULL),
     hyper_params
   )
   hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))
@@ -50,7 +51,10 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   if (is.null(hyper_params$scale_phi) ||
       !is.finite(hyper_params$scale_phi) ||
       hyper_params$scale_phi <= 0) {
-    hyper_params$scale_phi <- 1
+    hyper_params$scale_phi <- tpb_default_scale_phi(
+      X = X,
+      y = y
+    )
   }
   proposal_type <- match.arg(proposal_type, c("separate", "all_adaptive", "bi_adaptive"))
 
