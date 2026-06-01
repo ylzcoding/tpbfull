@@ -15,7 +15,7 @@ tpb_fullyBayes_fixab(
   diagX = FALSE,
   fix_phi = FALSE,
   phi_val = NULL,
-  scale_phi = NULL
+  scale_phi = 1
 )
 }
 \arguments{

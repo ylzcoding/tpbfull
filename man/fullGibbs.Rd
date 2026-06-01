@@ -21,7 +21,7 @@ fullGibbs(
   max_log_proposal_sd = 0.5,
   max_log_mh_step = 1,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = NULL)
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1)
 )
 }
 \arguments{
@@ -58,8 +58,7 @@ the log scale for adaptive MH covariance regularization.}
 beyond this distance are treated as self-loops.}
 
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b,
-s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL,
-tpb_default_scale_phi() is used.}
+s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi).}
 }
 \value{
 A list containing posterior samples matrices, acceptance rates, covariance matrix.

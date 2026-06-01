@@ -13,20 +13,12 @@
 tpb_fullyBayes_fixab <- function(X, y, a, b, num_burnin, num_samples,
                                  woodbury = TRUE, diagX = FALSE,
                                  fix_phi = FALSE, phi_val = NULL,
-                                 scale_phi = NULL) {
+                                 scale_phi = 1) {
   n <- nrow(X)
   p <- ncol(X)
   num_total <- num_burnin + num_samples
   if (is.null(scale_phi) || !is.finite(scale_phi) || scale_phi <= 0) {
-    scale_phi <- if (exists("tpb_default_scale_phi", mode = "function")) {
-      tpb_default_scale_phi(X = X, y = y)
-    } else {
-      sigma_reference <- stats::sd(as.numeric(y), na.rm = TRUE)
-      if (!is.finite(sigma_reference) || sigma_reference <= 0) {
-        sigma_reference <- 1
-      }
-      pmin((0.01 / 0.99) * sigma_reference / sqrt(n), 1)
-    }
+    scale_phi <- 1
   }
   
   beta_samples <- matrix(NA, nrow = num_samples, ncol = p)
