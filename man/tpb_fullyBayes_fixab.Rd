@@ -32,8 +32,6 @@ uses sqrt(phi) ~ C+(0, sqrt(scale_phi)) for a conjugate update.}
 }
 \value{
 list of posterior samples
-
-list of posterior samples
 }
 \description{
 Fully Bayesian Gibbs Sampler for the TPB Normal Model with Fixed a and b

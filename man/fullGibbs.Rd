@@ -58,7 +58,8 @@ the log scale for adaptive MH covariance regularization.}
 beyond this distance are treated as self-loops.}
 
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b,
-s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi).}
+s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL
+or invalid, scale_phi = 1 is used.}
 }
 \value{
 A list containing posterior samples matrices, acceptance rates, covariance matrix.

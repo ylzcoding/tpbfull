@@ -42,7 +42,7 @@ tpb_full_pipeline <- function(X, y,
                                                   s_b = 1.5, r_b = 1,
                                                   scale_a = 1,
                                                   scale_b = 1,
-                                                  scale_phi = NULL),
+                                                  scale_phi = 1),
                               num_iter = 100000,
                               num_warmup = 25000,
                               thinning = 1,
@@ -62,23 +62,6 @@ tpb_full_pipeline <- function(X, y,
                               verbose = TRUE,
                               ...) {
   init_method <- match.arg(init_method)
-  extra_args <- list(...)
-  extra_names <- names(extra_args)
-  if (is.null(extra_names)) {
-    extra_names <- character(0)
-  }
-  retired_selection_args <- intersect(
-    extra_names,
-    c("iter_selection", "selection_method", "importance_method",
-      "min_is_ess_fraction", "selection_score")
-  )
-  if (length(retired_selection_args) > 0) {
-    stop(
-      "These candidate-selection arguments were removed: ",
-      paste(retired_selection_args, collapse = ", "),
-      ". Use selection_samples for reverse-logistic selection."
-    )
-  }
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -89,7 +72,7 @@ tpb_full_pipeline <- function(X, y,
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
          scale_a = 1, scale_b = 1,
-         scale_phi = NULL),
+         scale_phi = 1),
     hyper_params
   )
 
@@ -138,10 +121,7 @@ tpb_full_pipeline <- function(X, y,
   if (is.null(final_hyper_params$scale_phi) ||
       !is.finite(final_hyper_params$scale_phi) ||
       final_hyper_params$scale_phi <= 0) {
-    final_hyper_params$scale_phi <- tpb_default_scale_phi(
-      X = X,
-      y = y
-    )
+    final_hyper_params$scale_phi <- 1
   }
 
   chains_beta <- vector("list", num_chains)

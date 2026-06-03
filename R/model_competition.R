@@ -54,22 +54,19 @@ eb_ridge_screen <- function(X, y, epsilon = 1e-8, ridge_lambda = NULL,
     x_diag <- diag(X)
     beta <- x_diag * y / (x_diag^2 + ridge_lambda)
     fitted <- x_diag * beta
-    df <- sum(x_diag^2 / (x_diag^2 + ridge_lambda))
   } else if (p <= n) {
-    beta <- solve(crossprod(X) + ridge_lambda * diag(p), crossprod(X, y))
+    beta <- as.vector(solve(
+      crossprod(X) + ridge_lambda * diag(p),
+      crossprod(X, y)
+    ))
     fitted <- as.vector(X %*% beta)
-    singular_values <- svd(X, nu = 0, nv = 0)$d^2
-    df <- sum(singular_values / (singular_values + ridge_lambda))
   } else {
     alpha <- solve(tcrossprod(X) + ridge_lambda * diag(n), y)
     beta <- as.vector(crossprod(X, alpha))
     fitted <- as.vector(X %*% beta)
-    singular_values <- svd(X, nu = 0, nv = 0)$d^2
-    df <- sum(singular_values / (singular_values + ridge_lambda))
   }
 
-  rss <- sum((y - fitted)^2)
-  sigmaSq <- rss / max(n - df, 1)
+  sigmaSq <- mean((y - fitted)^2)
   list(
     beta = as.vector(beta),
     sigmaSq = max(epsilon, sigmaSq),
@@ -78,7 +75,7 @@ eb_ridge_screen <- function(X, y, epsilon = 1e-8, ridge_lambda = NULL,
   )
 }
 
-eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
+eb_log_tpb_marginal_beta <- function(beta_vec, model_params) {
   a <- model_params$a
   b <- model_params$b
   # EB stores omega in beta | nu, lambda, omega.
@@ -96,8 +93,8 @@ eb_calculate_marginal_loglik_beta <- function(beta_vec, model_params) {
   sum(loglik_individual)
 }
 
-eb_calculate_gaussian_loglik_beta <- function(beta_vec, X, y, sigmaSq,
-                                             diagX = FALSE) {
+eb_log_gaussian_likelihood <- function(beta_vec, X, y, sigmaSq,
+                                       diagX = FALSE) {
   sigmaSq <- eb_positive_finite(sigmaSq, 1e-16)
   fitted <- if (diagX) {
     diag(X) * beta_vec
@@ -109,16 +106,16 @@ eb_calculate_gaussian_loglik_beta <- function(beta_vec, X, y, sigmaSq,
     sum(resid^2) / (2 * sigmaSq)
 }
 
-eb_calculate_posterior_kernel_score <- function(beta_vec, model_params, X, y,
-                                                diagX = FALSE) {
-  eb_calculate_gaussian_loglik_beta(
+eb_log_posterior_kernel_beta <- function(beta_vec, model_params, X, y,
+                                         diagX = FALSE) {
+  eb_log_gaussian_likelihood(
     beta_vec = beta_vec,
     X = X,
     y = y,
     sigmaSq = model_params$sigmaSq,
     diagX = diagX
   ) +
-    eb_calculate_marginal_loglik_beta(
+    eb_log_tpb_marginal_beta(
       beta_vec = beta_vec,
       model_params = model_params
     )
@@ -136,126 +133,6 @@ eb_logsumexp <- function(x) {
   m + log(sum(exp(x - m)))
 }
 
-eb_importance_ess <- function(logw) {
-  logw <- logw[!is.na(logw)]
-  if (length(logw) == 0) {
-    return(0)
-  }
-  log_sum_w <- eb_logsumexp(logw)
-  log_sum_w2 <- eb_logsumexp(2 * logw)
-  ess <- exp(2 * log_sum_w - log_sum_w2)
-  if (is.finite(ess)) ess else 0
-}
-
-eb_complete_logpost <- function(a, b, omega, sigmaSq, X, y,
-                                beta, nu, lambda, xi = NULL,
-                                diagX = FALSE) {
-  a <- eb_positive_finite(a, 1e-6)
-  b <- eb_positive_finite(b, 1e-6)
-  omega <- eb_positive_finite(omega, 1e-16)
-  sigmaSq <- eb_positive_finite(sigmaSq, 1e-16)
-  nu <- pmax(nu, .Machine$double.xmin)
-  lambda <- pmax(lambda, .Machine$double.xmin)
-
-  local_sd <- sqrt(pmax(omega * nu / lambda, .Machine$double.xmin))
-  log_xi <- if (is.null(xi)) {
-    0
-  } else {
-    xi <- pmax(xi, .Machine$double.xmin)
-    sum(stats::dgamma(xi, shape = a, rate = 1 / nu, log = TRUE))
-  }
-
-  eb_calculate_gaussian_loglik_beta(beta, X, y, sigmaSq, diagX) +
-    sum(stats::dnorm(beta, mean = 0, sd = local_sd, log = TRUE)) +
-    sum(stats::dgamma(nu, shape = a, rate = a, log = TRUE)) +
-    sum(stats::dgamma(lambda, shape = b, rate = b, log = TRUE)) +
-    log_xi
-}
-
-eb_em_importance_weights <- function(samples, target_params, source_params,
-                                     X, y, diagX = FALSE) {
-  n_samples <- nrow(samples$beta)
-  log_target <- vapply(seq_len(n_samples), function(i) {
-    eb_complete_logpost(
-      a = target_params$a, b = target_params$b,
-      omega = target_params$omega, sigmaSq = target_params$sigmaSq,
-      X = X, y = y,
-      beta = samples$beta[i, ],
-      nu = samples$nu[i, ],
-      lambda = samples$lambda[i, ],
-      xi = if (is.null(samples$xi)) NULL else samples$xi[i, ],
-      diagX = diagX
-    )
-  }, numeric(1))
-  log_source <- vapply(seq_len(n_samples), function(i) {
-    eb_complete_logpost(
-      a = source_params$a, b = source_params$b,
-      omega = source_params$omega, sigmaSq = source_params$sigmaSq,
-      X = X, y = y,
-      beta = samples$beta[i, ],
-      nu = samples$nu[i, ],
-      lambda = samples$lambda[i, ],
-      xi = if (is.null(samples$xi)) NULL else samples$xi[i, ],
-      diagX = diagX
-    )
-  }, numeric(1))
-
-  logw <- log_target - log_source
-  ess <- eb_importance_ess(logw)
-  if (all(is.na(logw)) || all(!is.finite(logw))) {
-    weights <- rep(1, n_samples)
-    ess <- 0
-  } else {
-    max_logw <- max(logw, na.rm = TRUE)
-    weights <- exp(logw - max_logw)
-    weights[!is.finite(weights)] <- 0
-    if (!is.finite(sum(weights)) || sum(weights) <= 0) {
-      weights <- rep(1, n_samples)
-      ess <- 0
-    }
-  }
-
-  list(weights = weights, ess = ess, log_weights = logw)
-}
-
-eb_weighted_m_step_sigmaSq <- function(beta_matrix, weights, X, y,
-                                       diagX = FALSE) {
-  weights <- as.numeric(weights)
-  w_sum <- sum(weights)
-  if (!is.finite(w_sum) || w_sum <= 0) {
-    return(eb_m_step_sigmaSq(beta_matrix, X, y, diagX))
-  }
-
-  y <- as.vector(y)
-  n <- nrow(X)
-  num_samples <- nrow(beta_matrix)
-  ssr <- if (diagX) {
-    x_diag <- diag(X)
-    vapply(seq_len(num_samples), function(i) {
-      sum((y - x_diag * beta_matrix[i, ])^2)
-    }, numeric(1))
-  } else {
-    vapply(seq_len(num_samples), function(i) {
-      sum((y - X %*% beta_matrix[i, ])^2)
-    }, numeric(1))
-  }
-
-  eb_positive_finite(sum(ssr * weights) / (w_sum * n), 1e-16)
-}
-
-eb_weighted_m_step_omega <- function(beta_matrix, lambda_matrix, nu_matrix,
-                                     weights) {
-  weights <- as.numeric(weights)
-  vals <- beta_matrix^2 * lambda_matrix / pmax(nu_matrix, 1e-16)
-  row_vals <- rowMeans(vals, na.rm = TRUE)
-  ok <- is.finite(row_vals) & is.finite(weights) & weights >= 0
-  denom <- sum(weights[ok])
-  if (!is.finite(denom) || denom <= 0) {
-    return(eb_m_step_omega(beta_matrix, lambda_matrix, nu_matrix))
-  }
-  eb_positive_finite(sum(row_vals[ok] * weights[ok]) / denom, 1e-16)
-}
-
 eb_softmax <- function(log_weights) {
   if (all(!is.finite(log_weights))) {
     return(rep(1 / length(log_weights), length(log_weights)))
@@ -271,22 +148,22 @@ eb_softmax <- function(log_weights) {
   }
 }
 
-eb_precompute_selection_scores <- function(presampled_betas,
-                                           pre_optimized_params,
-                                           X, y,
-                                           diagX = FALSE) {
+eb_precompute_kernel_scores <- function(presampled_betas,
+                                        pre_optimized_params,
+                                        X, y,
+                                        diagX = FALSE) {
   model_names <- names(pre_optimized_params)
-  scores <- vector("list", length(model_names))
-  names(scores) <- model_names
+  out <- vector("list", length(model_names))
+  names(out) <- model_names
 
   for (source_name in model_names) {
     beta_mat <- presampled_betas[[source_name]]
     n_s <- nrow(beta_mat)
-    score_mat <- matrix(NA_real_, nrow = n_s, ncol = length(model_names),
+    kernel_mat <- matrix(NA_real_, nrow = n_s, ncol = length(model_names),
                         dimnames = list(NULL, model_names))
     for (target_name in model_names) {
-      score_mat[, target_name] <- vapply(seq_len(n_s), function(i) {
-        eb_calculate_posterior_kernel_score(
+      kernel_mat[, target_name] <- vapply(seq_len(n_s), function(i) {
+        eb_log_posterior_kernel_beta(
           beta_vec = beta_mat[i, ],
           model_params = pre_optimized_params[[target_name]],
           X = X,
@@ -295,10 +172,10 @@ eb_precompute_selection_scores <- function(presampled_betas,
         )
       }, numeric(1))
     }
-    scores[[source_name]] <- score_mat
+    out[[source_name]] <- kernel_mat
   }
 
-  scores
+  out
 }
 
 eb_reverse_logistic_selection <- function(presampled_betas,
@@ -319,7 +196,7 @@ eb_reverse_logistic_selection <- function(presampled_betas,
   }
 
   if (is.null(kernel_scores)) {
-    kernel_scores <- eb_precompute_selection_scores(
+    kernel_scores <- eb_precompute_kernel_scores(
       presampled_betas = presampled_betas,
       pre_optimized_params = pre_optimized_params,
       X = X,
@@ -339,8 +216,8 @@ eb_reverse_logistic_selection <- function(presampled_betas,
     grad <- numeric(M)
 
     for (source_idx in seq_len(M)) {
-      score_mat <- kernel_scores[[model_names[source_idx]]]
-      adjusted <- sweep(score_mat, 2, theta, FUN = "-")
+      kernel_mat <- kernel_scores[[model_names[source_idx]]]
+      adjusted <- sweep(kernel_mat, 2, theta, FUN = "-")
       adjusted <- sweep(adjusted, 2, log_n, FUN = "+")
 
       for (i in seq_len(nrow(adjusted))) {
@@ -361,28 +238,16 @@ eb_reverse_logistic_selection <- function(presampled_betas,
     list(value = value, gradient = grad[-ref])
   }
 
-  opt <- tryCatch({
-    stats::optim(
-      par = rep(0, M - 1),
-      fn = function(par) objective_gradient(par)$value,
-      gr = function(par) objective_gradient(par)$gradient,
-      method = "BFGS",
-      control = list(maxit = 1000, reltol = 1e-8)
-    )
-  }, error = function(e) NULL)
+  opt <- stats::optim(
+    par = rep(0, M - 1),
+    fn = function(par) objective_gradient(par)$value,
+    gr = function(par) objective_gradient(par)$gradient,
+    method = "BFGS",
+    control = list(maxit = 1000, reltol = 1e-8)
+  )
 
   theta <- numeric(M)
-  convergence <- NA_integer_
-  objective <- NA_real_
-  if (!is.null(opt) && all(is.finite(opt$par))) {
-    theta[-ref] <- opt$par
-    convergence <- opt$convergence
-    objective <- opt$value
-  }
-
-  if (any(!is.finite(theta))) {
-    theta <- rep(0, M)
-  }
+  theta[-ref] <- opt$par
   theta <- theta - max(theta, na.rm = TRUE)
   probs <- eb_softmax(theta)
   names(theta) <- model_names
@@ -392,8 +257,8 @@ eb_reverse_logistic_selection <- function(presampled_betas,
     model_probabilities = probs,
     log_evidence = theta,
     n_by_source = n_by_source,
-    convergence = convergence,
-    objective = objective,
+    convergence = opt$convergence,
+    objective = opt$value,
     method = "importance_reverse_logistic"
   )
 }
@@ -523,6 +388,127 @@ eb_m_step_omega <- function(beta_matrix, lambda_matrix, nu_matrix) {
     return(1e-6)
   }
   eb_positive_finite(mean(finite_vals), 1e-16)
+}
+
+# Importance-sampling reuse for the MC-EM E-step.
+eb_importance_ess <- function(logw) {
+  logw <- logw[!is.na(logw)]
+  if (length(logw) == 0) {
+    return(0)
+  }
+  log_sum_w <- eb_logsumexp(logw)
+  log_sum_w2 <- eb_logsumexp(2 * logw)
+  ess <- exp(2 * log_sum_w - log_sum_w2)
+  if (is.finite(ess)) ess else 0
+}
+
+eb_complete_logpost <- function(a, b, omega, sigmaSq, X, y,
+                                beta, nu, lambda, xi = NULL,
+                                diagX = FALSE) {
+  a <- eb_positive_finite(a, 1e-6)
+  b <- eb_positive_finite(b, 1e-6)
+  omega <- eb_positive_finite(omega, 1e-16)
+  sigmaSq <- eb_positive_finite(sigmaSq, 1e-16)
+  nu <- pmax(nu, .Machine$double.xmin)
+  lambda <- pmax(lambda, .Machine$double.xmin)
+
+  local_sd <- sqrt(pmax(omega * nu / lambda, .Machine$double.xmin))
+  log_xi <- if (is.null(xi)) {
+    0
+  } else {
+    xi <- pmax(xi, .Machine$double.xmin)
+    sum(stats::dgamma(xi, shape = a, rate = 1 / nu, log = TRUE))
+  }
+
+  eb_log_gaussian_likelihood(beta, X, y, sigmaSq, diagX) +
+    sum(stats::dnorm(beta, mean = 0, sd = local_sd, log = TRUE)) +
+    sum(stats::dgamma(nu, shape = a, rate = a, log = TRUE)) +
+    sum(stats::dgamma(lambda, shape = b, rate = b, log = TRUE)) +
+    log_xi
+}
+
+eb_em_importance_weights <- function(samples, target_params, source_params,
+                                     X, y, diagX = FALSE) {
+  n_samples <- nrow(samples$beta)
+  log_target <- vapply(seq_len(n_samples), function(i) {
+    eb_complete_logpost(
+      a = target_params$a, b = target_params$b,
+      omega = target_params$omega, sigmaSq = target_params$sigmaSq,
+      X = X, y = y,
+      beta = samples$beta[i, ],
+      nu = samples$nu[i, ],
+      lambda = samples$lambda[i, ],
+      xi = if (is.null(samples$xi)) NULL else samples$xi[i, ],
+      diagX = diagX
+    )
+  }, numeric(1))
+  log_source <- vapply(seq_len(n_samples), function(i) {
+    eb_complete_logpost(
+      a = source_params$a, b = source_params$b,
+      omega = source_params$omega, sigmaSq = source_params$sigmaSq,
+      X = X, y = y,
+      beta = samples$beta[i, ],
+      nu = samples$nu[i, ],
+      lambda = samples$lambda[i, ],
+      xi = if (is.null(samples$xi)) NULL else samples$xi[i, ],
+      diagX = diagX
+    )
+  }, numeric(1))
+
+  logw <- log_target - log_source
+  ess <- eb_importance_ess(logw)
+  if (all(is.na(logw)) || all(!is.finite(logw))) {
+    weights <- rep(1, n_samples)
+    ess <- 0
+  } else {
+    max_logw <- max(logw, na.rm = TRUE)
+    weights <- exp(logw - max_logw)
+    weights[!is.finite(weights)] <- 0
+    if (!is.finite(sum(weights)) || sum(weights) <= 0) {
+      weights <- rep(1, n_samples)
+      ess <- 0
+    }
+  }
+
+  list(weights = weights, ess = ess, log_weights = logw)
+}
+
+eb_weighted_m_step_sigmaSq <- function(beta_matrix, weights, X, y,
+                                       diagX = FALSE) {
+  weights <- as.numeric(weights)
+  w_sum <- sum(weights)
+  if (!is.finite(w_sum) || w_sum <= 0) {
+    return(eb_m_step_sigmaSq(beta_matrix, X, y, diagX))
+  }
+
+  y <- as.vector(y)
+  n <- nrow(X)
+  num_samples <- nrow(beta_matrix)
+  ssr <- if (diagX) {
+    x_diag <- diag(X)
+    vapply(seq_len(num_samples), function(i) {
+      sum((y - x_diag * beta_matrix[i, ])^2)
+    }, numeric(1))
+  } else {
+    vapply(seq_len(num_samples), function(i) {
+      sum((y - X %*% beta_matrix[i, ])^2)
+    }, numeric(1))
+  }
+
+  eb_positive_finite(sum(ssr * weights) / (w_sum * n), 1e-16)
+}
+
+eb_weighted_m_step_omega <- function(beta_matrix, lambda_matrix, nu_matrix,
+                                     weights) {
+  weights <- as.numeric(weights)
+  vals <- beta_matrix^2 * lambda_matrix / pmax(nu_matrix, 1e-16)
+  row_vals <- rowMeans(vals, na.rm = TRUE)
+  ok <- is.finite(row_vals) & is.finite(weights) & weights >= 0
+  denom <- sum(weights[ok])
+  if (!is.finite(denom) || denom <= 0) {
+    return(eb_m_step_omega(beta_matrix, lambda_matrix, nu_matrix))
+  }
+  eb_positive_finite(sum(row_vals[ok] * weights[ok]) / denom, 1e-16)
 }
 
 eb_run_em_engine <- function(X, y,
@@ -786,7 +772,7 @@ initialize_adaptive <- function(X, y,
   if (isTRUE(verbose)) {
     cat("Stage 3: Starting model selection ...\n")
   }
-  selection_scores <- eb_precompute_selection_scores(
+  kernel_scores <- eb_precompute_kernel_scores(
     presampled_betas = presampled_betas,
     pre_optimized_params = pre_optimized_params,
     X = X,
@@ -800,7 +786,7 @@ initialize_adaptive <- function(X, y,
     X = X,
     y = y,
     diagX = diagX,
-    kernel_scores = selection_scores
+    kernel_scores = kernel_scores
   )
   avg_probs <- importance_result$model_probabilities
   winner_name <- names(which.max(avg_probs))
