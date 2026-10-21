@@ -37,7 +37,8 @@ In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.}
 
 \item{woodbury}{Logical, use Woodbury identity in beta updates.}
 
-\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
+\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.
+pre_opt_burnin is also used before selection samples at the final EM parameters.}
 
 \item{selection_samples}{Number of posterior samples per candidate used by
 the reverse-logistic selection stage.}

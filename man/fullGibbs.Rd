@@ -29,7 +29,7 @@ fullGibbs(
 
 \item{y}{n*1 response vector}
 
-\item{num_output}{Integer, number of posterior samples to save (after burn-in)}
+\item{num_output}{Integer, number of post-warmup iterations before thinning}
 
 \item{num_burnin}{Integer, number of burn-in iterations to discard}
 

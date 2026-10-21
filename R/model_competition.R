@@ -84,13 +84,7 @@ eb_log_tpb_marginal_beta <- function(beta_vec, model_params) {
   if (!is.finite(phi) || phi <= 0) {
     return(-Inf)
   }
-  dens <- eb_d_tpb(beta_vec = beta_vec, a = a, b = b, phi = phi)
-  if (any(is.na(dens)) || any(dens <= 0)) {
-    return(-Inf)
-  }
-  loglik_individual <- log(pmin(pmax(dens, .Machine$double.xmin),
-                                .Machine$double.xmax))
-  sum(loglik_individual)
+  sum(tpb_log_marginal_beta(beta_vec, a, b, phi))
 }
 
 eb_log_gaussian_likelihood <- function(beta_vec, X, y, sigmaSq,
@@ -205,49 +199,55 @@ eb_reverse_logistic_selection <- function(presampled_betas,
     )
   }
 
-  n_by_source <- vapply(presampled_betas, nrow, integer(1))
-  log_n <- log(pmax(n_by_source, 1))
+  n_by_source <- vapply(presampled_betas[model_names], nrow, integer(1))
+  log_n <- log(n_by_source)
+  scores <- do.call(rbind, lapply(model_names, function(name) {
+    mat <- kernel_scores[[name]]
+    if (!is.null(colnames(mat))) mat <- mat[, model_names, drop = FALSE]
+    mat
+  }))
+  source <- rep(seq_len(M), n_by_source)
+  N <- nrow(scores)
   ref <- 1
+  # A common row constant must have no effect on the fit or its stopping rule.
+  scores <- scores - apply(scores, 1, max)
+  source_index <- cbind(seq_len(N), source)
 
-  objective_gradient <- function(par) {
-    theta <- numeric(M)
-    theta[-ref] <- par
-    value <- 0
-    grad <- numeric(M)
-
-    for (source_idx in seq_len(M)) {
-      kernel_mat <- kernel_scores[[model_names[source_idx]]]
-      adjusted <- sweep(kernel_mat, 2, theta, FUN = "-")
-      adjusted <- sweep(adjusted, 2, log_n, FUN = "+")
-
-      for (i in seq_len(nrow(adjusted))) {
-        row <- adjusted[i, ]
-        log_den <- eb_logsumexp(row)
-        if (!is.finite(log_den)) {
-          value <- value + 1e8
-          next
-        }
-        probs <- exp(row - log_den)
-        probs[!is.finite(probs)] <- 0
-        value <- value + theta[source_idx] + log_den
-        grad[source_idx] <- grad[source_idx] + 1
-        grad <- grad - probs
-      }
-    }
-
-    list(value = value, gradient = grad[-ref])
+  row_logsumexp <- function(x) {
+    peak <- apply(x, 1, max)
+    peak + log(rowSums(exp(x - peak)))
   }
-
-  opt <- stats::optim(
-    par = rep(0, M - 1),
-    fn = function(par) objective_gradient(par)$value,
-    gr = function(par) objective_gradient(par)$gradient,
-    method = "BFGS",
-    control = list(maxit = 1000, reltol = 1e-8)
-  )
-
   theta <- numeric(M)
-  theta[-ref] <- opt$par
+  adjusted <- sweep(scores, 2, log_n, FUN = "+")
+  groups <- unlist(lapply(seq_len(M - 1), function(k) {
+    combn(seq_len(M)[-ref], k, simplify = FALSE)
+  }), recursive = FALSE)
+
+  # Optimize the same source-label likelihood by shifts of candidate groups.
+  # Log-space flow balance avoids subtracting nearly equal source counts.
+  # Group shifts also move candidates whose relative weights are tightly linked.
+  for (iter in seq_len(200)) {
+    largest_step <- 0
+    for (group in groups) {
+      inside <- source %in% group
+      log_odds <- row_logsumexp(adjusted[, group, drop = FALSE]) -
+        row_logsumexp(adjusted[, -group, drop = FALSE])
+      balance <- function(step) {
+        eb_logsumexp(plogis(step - log_odds[inside], log.p = TRUE)) -
+          eb_logsumexp(plogis(log_odds[!inside] - step, log.p = TRUE))
+      }
+      step <- uniroot(balance, range(log_odds) + c(-30, 30), tol = 1e-10)$root
+      theta[group] <- theta[group] + step
+      adjusted[, group] <- adjusted[, group, drop = FALSE] - step
+      largest_step <- max(largest_step, abs(step))
+    }
+    if (largest_step < 1e-8) break
+  }
+  if (largest_step >= 1e-8) stop("Reverse logistic optimization did not converge.")
+
+  source_score <- adjusted[source_index]
+  adjusted[source_index] <- -Inf
+  objective <- mean(tpb_softplus(row_logsumexp(adjusted) - source_score))
   theta <- theta - max(theta, na.rm = TRUE)
   probs <- eb_softmax(theta)
   names(theta) <- model_names
@@ -257,55 +257,14 @@ eb_reverse_logistic_selection <- function(presampled_betas,
     model_probabilities = probs,
     log_evidence = theta,
     n_by_source = n_by_source,
-    convergence = opt$convergence,
-    objective = opt$value,
+    convergence = 0,
+    objective = objective,
     method = "importance_reverse_logistic"
   )
 }
 
 eb_d_tpb <- function(beta_vec, a, b, phi) {
-  if (!is.finite(a) || !is.finite(b) || !is.finite(phi) ||
-      a <= 0 || b <= 0 || phi <= 0) {
-    return(rep(NA_real_, length(beta_vec)))
-  }
-
-  tricomi_U_integral <- function(U_a, U_b, z) {
-    integrand <- function(t) {
-      exp(-z * t) * t^(U_a - 1) * (1 + t)^(U_b - U_a - 1)
-    }
-    integral_result <- tryCatch({
-      integrate(integrand, lower = 0, upper = Inf)$value
-    }, error = function(e) NA_real_)
-    integral_result / gamma(U_a)
-  }
-
-  log_const <- lgamma(0.5 + b) + lgamma(a + b) -
-    lgamma(a) - lgamma(b) - 0.5 * log(2 * pi * phi)
-  U_a <- 0.5 + b
-  U_b <- 1.5 - a
-
-  z_vals <- beta_vec^2 / (2 * phi)
-  out <- rep(NA_real_, length(beta_vec))
-  valid <- is.finite(z_vals) & z_vals >= 0
-  if (!any(valid)) {
-    return(out)
-  }
-
-  U_vals <- rep(NA_real_, length(beta_vec))
-  U_vals[valid] <- tryCatch({
-    gsl::hyperg_U(U_a, U_b, z_vals[valid])
-  }, error = function(e) rep(NA_real_, sum(valid)))
-
-  needs_fallback <- valid & (!is.finite(U_vals) | U_vals <= 0)
-  if (any(needs_fallback)) {
-    U_vals[needs_fallback] <- vapply(z_vals[needs_fallback], function(z_val) {
-      tricomi_U_integral(U_a, U_b, z_val)
-    }, numeric(1))
-  }
-
-  ok <- valid & is.finite(U_vals) & U_vals > 0
-  out[ok] <- exp(pmin(log_const + log(U_vals[ok]), log(.Machine$double.xmax)))
-  out
+  exp(tpb_log_marginal_beta(beta_vec, a, b, phi))
 }
 
 eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
@@ -322,35 +281,27 @@ eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
   lambda_samples <- matrix(NA_real_, nrow = total, ncol = p)
   xi_samples <- matrix(NA_real_, nrow = total, ncol = p)
 
-  beta_samples[1, ] <- beta0
-  nu_samples[1, ] <- pmax(nu0, 1e-16)
-  lambda_samples[1, ] <- pmax(lambda0, 1e-16)
-  xi_samples[1, ] <- pmax(xi0, 1e-16)
+  nu <- pmax(nu0, 1e-16)
+  lambda <- pmax(lambda0, 1e-16)
+  xi <- pmax(xi0, 1e-16)
+  omega_current <- eb_positive_finite(omega, 1e-16)
+  sigmaSq_current <- eb_positive_finite(sigmaSq, 1e-16)
 
-  if (total >= 2) {
-    for (i in 2:total) {
-      omega_current <- eb_positive_finite(omega, 1e-16)
-      beta_samples[i, ] <- Gibbs_beta(
-        X = X, y = y, a = a, b = b,
-        phi = omega_current,
-        sigmaSq = eb_positive_finite(sigmaSq, 1e-16),
-        nu = nu_samples[i - 1, ],
-        lambda = lambda_samples[i - 1, ],
-        woodbury = woodbury, diagX = diagX
-      )
-      nu_samples[i, ] <- Gibbs_nu(
-        p = p, phi = omega_current, beta = beta_samples[i, ],
-        lambda = lambda_samples[i - 1, ], xi = xi_samples[i - 1, ],
-        a = a
-      )
-      xi_samples[i, ] <- Gibbs_xi(
-        p = p, a = a, nu = nu_samples[i, ]
-      )
-      lambda_samples[i, ] <- Gibbs_lambda(
-        p = p, b = b, phi = omega_current,
-        beta = beta_samples[i, ], nu = nu_samples[i, ]
-      )
-    }
+  for (i in seq_len(total)) {
+    beta <- Gibbs_beta(
+      X = X, y = y, a = a, b = b, phi = omega_current,
+      sigmaSq = sigmaSq_current, nu = nu, lambda = lambda,
+      woodbury = woodbury, diagX = diagX
+    )
+    nu <- Gibbs_nu(p = p, phi = omega_current, beta = beta,
+                   lambda = lambda, xi = xi, a = a)
+    xi <- Gibbs_xi(p = p, a = a, nu = nu)
+    lambda <- Gibbs_lambda(p = p, b = b, phi = omega_current,
+                           beta = beta, nu = nu)
+    beta_samples[i, ] <- beta
+    nu_samples[i, ] <- nu
+    lambda_samples[i, ] <- lambda
+    xi_samples[i, ] <- xi
   }
 
   keep <- (burn + 1):total
@@ -674,6 +625,7 @@ eb_run_em_engine <- function(X, y,
 #'   In the E-step, beta_j | nu_j, lambda_j uses variance omega * nu_j / lambda_j.
 #' @param iter_pre_opt Iterations for the pre-optimization EM stage for each candidate.
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
+#'   pre_opt_burnin is also used before selection samples at the final EM parameters.
 #' @param selection_samples Number of posterior samples per candidate used by
 #'   the reverse-logistic selection stage.
 #' @param IS_period Pre-optimization EM resampling period. 1 runs a fresh Gibbs
@@ -763,7 +715,7 @@ initialize_adaptive <- function(X, y,
       omega = params$omega, sigmaSq = params$sigmaSq,
       beta0 = starting$beta0, nu0 = starting$nu0,
       lambda0 = starting$lambda0, xi0 = starting$xi0,
-      burn = 0,
+      burn = pre_opt_burnin,
       woodbury = woodbury, diagX = diagX
     )
     presampled_betas[[name]] <- presamples$beta
@@ -859,6 +811,7 @@ eb_initial_values <- function(X, y, epsilon = 1e-6,
 #' @param woodbury Logical, use Woodbury identity in beta updates.
 #' @param candidates Candidate models and their initial a,b values.
 #' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
+#'   pre_opt_burnin is also used before selection samples at the final EM parameters.
 #' @param delta1,delta2,delta3 Convergence tolerances.
 #' @param window_size Size of the convergence window.
 #' @param diagX Logical, assume diagonal X.

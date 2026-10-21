@@ -2,55 +2,57 @@
 #' @param X n*p design matrix
 #' @param y n*1 response vector
 #' @param phi Local beta variance scale. This is omega in the EB sampler,
-#'   and phi * a / b inside the fully Bayesian sampler.
+#'   or phi * a / b in the mean-one nu/lambda representation of marginal TPB.
 #' @param nu,lambda p*1 local-scale vectors
 #' @param sigmaSq error variance (scalar)
+#' @param local_var Optional local prior variances, used after marginal MH.
 #' @param woodbury binary logic variable, apply Woodbury identity or not
 #' @param diagX binary logic variable, if TRUE assumes X is diagonal
 #' @return posterior vector beta
 #' @export
 Gibbs_beta <- function(X, y, a = NULL, b = NULL, phi = NULL, sigmaSq = NULL,
                        nu = NULL, lambda = NULL, woodbury = FALSE,
-                       diagX = FALSE, omega = NULL) {
-  if (is.null(phi)) {
-    phi <- omega
+                       diagX = FALSE, omega = NULL, local_var = NULL) {
+  if (is.null(local_var)) {
+    if (is.null(phi)) phi <- omega
+    if (is.null(phi) || is.null(nu) || is.null(lambda)) {
+      stop("Gibbs_beta requires local_var or phi (or omega), nu, and lambda.")
+    }
+    local_var <- phi * pmax(nu, .Machine$double.xmin) /
+      pmax(lambda, .Machine$double.xmin)
   }
-  if (is.null(phi) || is.null(sigmaSq) || is.null(nu) || is.null(lambda)) {
-    stop("Gibbs_beta requires phi (or omega), sigmaSq, nu, and lambda.")
-  }
-
-  phi <- max(phi, .Machine$double.xmin)
+  if (is.null(sigmaSq)) stop("Gibbs_beta requires sigmaSq.")
   sigmaSq <- max(sigmaSq, .Machine$double.xmin)
-  nu <- pmax(nu, .Machine$double.xmin)
-  lambda <- pmax(lambda, .Machine$double.xmin)
-  local_var <- pmax(phi * nu / lambda, .Machine$double.xmin)
+  local_var <- pmax(local_var, .Machine$double.xmin)
 
   if (!diagX) {
+    n <- nrow(X)
+    p <- ncol(X)
+    sqrt_d <- sqrt(local_var)
+    A <- sweep(X / sqrt(sigmaSq), 2, sqrt_d, FUN = "*")
     if (!woodbury) {
-      eta <- local_var
-      Xrteta <- (X / sqrt(sigmaSq)) %*% diag(sqrt(eta))
-      AA <- eigen(t(Xrteta) %*% Xrteta)
-      nonnegative_eigenVals <- ifelse(AA$values + 1 > 0, 1 / (AA$values + 1), 0)
-      inverse <- diag(sqrt(eta)) %*% AA$vectors %*%
-        diag(nonnegative_eigenVals) %*% t(AA$vectors) %*% diag(sqrt(eta))
-      mean_beta <- inverse %*% t(X) %*% (y / sigmaSq)
-      beta <- diag(sqrt(eta)) %*% AA$vectors %*%
-        diag(sqrt(nonnegative_eigenVals)) %*% rnorm(length(mean_beta)) + mean_beta
+      R <- chol(crossprod(A) + diag(p))
+      mean_z <- backsolve(R, forwardsolve(t(R), crossprod(A, y / sqrt(sigmaSq))))
+      beta <- sqrt_d * as.vector(mean_z + backsolve(R, rnorm(p)))
     } else {
-      n <- nrow(X)
-      p <- ncol(X)
-      d <- local_var
-      u <- rnorm(p, 0, sqrt(d))
-      delta <- rnorm(n, 0, 1)
-      XD <- sweep(X, 2, d, FUN = "*")
-      M <- XD %*% t(X) + sigmaSq * diag(n)
-
-      eig <- eigen(M, symmetric = TRUE)
-      M_eig_vals_inv <- ifelse(eig$values > 1e-8, 1 / eig$values, 0)
-      M_inv <- eig$vectors %*% diag(M_eig_vals_inv) %*% t(eig$vectors)
-      rhs <- y - X %*% u - sqrt(sigmaSq) * delta
-      w <- M_inv %*% rhs
-      beta <- u + sweep(t(XD) %*% w, 1, 1, FUN = "*")
+      u <- rnorm(p)
+      delta <- rnorm(n)
+      rhs <- y / sqrt(sigmaSq) - A %*% u - delta
+      gram <- tcrossprod(A)
+      loses_unit <- any(diag(gram) + 1 == diag(gram))
+      R <- if (loses_unit) NULL else
+        tryCatch(chol(gram + diag(n)), error = function(e) NULL)
+      if (is.null(R)) {
+        # Large local scales can erase I_n when forming A A' numerically.
+        # SVD of A preserves the +1 without clipping eigenvalues or adding jitter.
+        decomp <- svd(A)
+        correction <- decomp$v %*%
+          ((decomp$d / (1 + decomp$d^2)) * crossprod(decomp$u, rhs))
+        return(sqrt_d * as.vector(u + correction))
+      } else {
+        w <- backsolve(R, forwardsolve(t(R), rhs))
+      }
+      beta <- sqrt_d * as.vector(u + crossprod(A, w))
     }
     return(beta)
   }

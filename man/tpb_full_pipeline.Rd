@@ -50,7 +50,8 @@ tpb_full_pipeline(
 
 \item{iter_pre_opt}{Iterations for the model competition pre-optimization EM stage for each candidate}
 
-\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step}
+\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.
+pre_opt_burnin is also used before selection samples at the final EM parameters.}
 
 \item{omega_init_guess, sigmaSq_init_guess}{Optional initial guesses for EB omega and sigmaSq}
 

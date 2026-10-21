@@ -4,7 +4,7 @@
 #' @import coda
 #' @param X n*p design matrix
 #' @param y n*1 response vector
-#' @param num_output Integer, number of posterior samples to save (after burn-in)
+#' @param num_output Integer, number of post-warmup iterations before thinning
 #' @param num_burnin Integer, number of burn-in iterations to discard
 #' @param thin Integer, thinning interval for saved posterior samples
 #' @param woodbury Logical, use Woodbury identity in beta update
@@ -87,13 +87,8 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_b))
   )
   phi     <- hyper_params$scale_phi
-  nu      <- rgamma(p, shape = 1, rate = 1)
-  lambda  <- rgamma(p, shape = 1, rate = 1)
-  xi      <- Gibbs_xi(p = p, a = a, nu = nu)
-  # fullGibbs samples the marginal TPB scale phi. The nu/lambda Gibbs
-  # conditionals use omega_local because marginal phi = omega_local * b / a.
-  omega_local <- phi * a / b
-  beta    <- rnorm(p, mean = 0, sd = sqrt(omega_local * nu / lambda))
+  local_var <- phi * a / b * rgamma(p, shape = 1) / rgamma(p, shape = 1)
+  beta <- rnorm(p, sd = sqrt(local_var))
 
   # Storage matrices
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
@@ -127,20 +122,10 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
 
 
   for (iter in 1:total_iter) {
-    # Convert the current marginal TPB scale to the local-scale variance
-    # parameter used by beta | nu, lambda.
-    omega_local <- phi * a / b
-    beta <- Gibbs_beta(X = X, y = y, a = a, b = b,
-                       phi = omega_local, sigmaSq = sigmaSq,
-                       nu = nu, lambda = lambda,
+    beta <- Gibbs_beta(X = X, y = y, sigmaSq = sigmaSq,
+                       local_var = local_var,
                        woodbury = woodbury, diagX = diagX)
-
     sigmaSq <- Gibbs_sigmaSq(n, X, y, beta)
-    nu <- Gibbs_nu(p = p, phi = omega_local, beta = beta, lambda = lambda,
-                   xi = xi, a = a)
-    xi <- Gibbs_xi(p = p, a = a, nu = nu)
-    lambda <- Gibbs_lambda(p = p, b = b, phi = omega_local,
-                           beta = beta, nu = nu)
 
     if (proposal_type == "separate"){
       a_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "a",
@@ -285,6 +270,10 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     } else {
       stop("Invalid proposal_type! Choose 'separate', 'all_adaptive', or 'bi_adaptive'.")
     }
+
+    # Marginal MH discards the old local scales. Restore their conditional
+    # distribution under the updated a, b, phi before the next beta update.
+    local_var <- tpb_draw_local_var(beta, a, b, phi)
 
     if (iter > num_burnin) {
       if ((iter - num_burnin) %% thin == 0) {

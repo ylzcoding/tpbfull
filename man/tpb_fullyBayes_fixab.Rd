@@ -2,7 +2,9 @@
 % Please edit documentation in R/getSamples_full_fixed_ab.R
 \name{tpb_fullyBayes_fixab}
 \alias{tpb_fullyBayes_fixab}
-\title{Fully Bayesian Gibbs Sampler for the TPB Normal Model with Fixed a and b}
+\title{Fully Bayesian Gibbs Sampler for the TPB Normal Model with Fixed a and b
+Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+matching the main TPB sampler.}
 \usage{
 tpb_fullyBayes_fixab(
   X,
@@ -27,12 +29,13 @@ tpb_fullyBayes_fixab(
 
 \item{phi_val}{Numeric. The fixed value for phi (if fix_phi = TRUE) or the initial starting value.}
 
-\item{scale_phi}{Half-Cauchy scale for the typical phi value. Internally this
-uses sqrt(phi) ~ C+(0, sqrt(scale_phi)) for a conjugate update.}
+\item{scale_phi}{Half-Cauchy scale for phi (not sqrt(phi)).}
 }
 \value{
 list of posterior samples
 }
 \description{
 Fully Bayesian Gibbs Sampler for the TPB Normal Model with Fixed a and b
+Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+matching the main TPB sampler.
 }

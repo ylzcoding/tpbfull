@@ -23,7 +23,6 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
                                    scale_a = 1,
                                    scale_b = 1) {
 
-  p <- length(beta_vec)
   prior_type_a <- match.arg(prior_type_a, c("gamma", "hcauchy"))
   prior_type_b <- match.arg(prior_type_b, c("gamma", "hcauchy"))
 
@@ -32,55 +31,19 @@ log_marginal_posterior <- function(a, b, phi, beta_vec,
     return(list(log_posterior = -Inf, log_lik = -Inf))
   }
 
-  r <- 0.5 + b
-  s <- 1.5 - a
-  z <- (beta_vec^2) / (2 * phi)
-
-  tricomi_U_integral <- function(U_a, U_b, z_val) {
-    integrand <- function(t) {
-      exp(-z_val * t) * t^(U_a - 1) * (1 + t)^(U_b - U_a - 1)
-    }
-    integral_result <- tryCatch({
-      integrate(integrand, lower = 0, upper = Inf)$value
-    }, error = function(e) NA_real_)
-    integral_result / gamma(U_a)
-  }
-
-  U_vals <- tryCatch({
-    gsl::hyperg_U(r, s, z)
-  }, error = function(e) {
-    return(rep(NaN, p))
-  })
-
-  bad_u <- is.na(U_vals) | !is.finite(U_vals) | U_vals <= 0
-  if (any(bad_u)) {
-    U_vals[bad_u] <- vapply(z[bad_u], function(z_val) {
-      if (!is.finite(z_val) || z_val < 0) {
-        return(NA_real_)
-      }
-      tricomi_U_integral(r, s, z_val)
-    }, numeric(1))
-  }
-
-  # if U <= 0，just return -inf to reject this proposal
-  if (any(is.na(U_vals)) || any(!is.finite(U_vals)) || any(U_vals <= 0)) {
-    return(list(log_posterior = -Inf, log_lik = -Inf))
-  }
-
-  term1 <- lgamma(0.5+b) + lgamma(a+b) - lgamma(a) - lgamma(b) - 0.5 * log(2*pi*phi)
-  log_lik <- p * term1 + sum(log(U_vals))
+  log_lik <- sum(tpb_log_marginal_beta(beta_vec, a, b, phi))
   log_prior_a <- switch(
     prior_type_a,
     gamma = (s_prior_a - 1) * log(a) - r_prior_a * a,
-    hcauchy = -log(1 + (a / scale_a)^2)
+    hcauchy = -tpb_softplus(2 * (log(a) - log(scale_a)))
   )
   log_prior_b <- switch(
     prior_type_b,
     gamma = (s_prior_b - 1) * log(b) - r_prior_b * b,
-    hcauchy = -log(1 + (b / scale_b)^2)
+    hcauchy = -tpb_softplus(2 * (log(b) - log(scale_b)))
   )
   # phi ~ Half-Cauchy(0, scale_phi)
-  log_prior_phi <- -log(1 + (phi / scale_phi)^2)
+  log_prior_phi <- -tpb_softplus(2 * (log(phi) - log(scale_phi)))
 
   # Unnormalized Log Posterior
   return(list(

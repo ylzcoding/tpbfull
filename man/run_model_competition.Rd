@@ -58,7 +58,8 @@ to reuse pre-optimization EM samples with importance weights.}
 
 \item{candidates}{Candidate models and their initial a,b values.}
 
-\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.}
+\item{pre_opt_burnin, pre_opt_samples}{Burn-in and saved Gibbs samples within each EM E-step.
+pre_opt_burnin is also used before selection samples at the final EM parameters.}
 
 \item{delta1, delta2, delta3}{Convergence tolerances.}
 

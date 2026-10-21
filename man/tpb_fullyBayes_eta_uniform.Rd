@@ -36,7 +36,7 @@ tpb_fullyBayes_eta_uniform(
 
 \item{phi_val}{Fixed or initial value for phi.}
 
-\item{scale_phi}{Half-Cauchy scale for sqrt(phi); defaults to 1.}
+\item{scale_phi}{Half-Cauchy scale for phi (not sqrt(phi)). Defaults to 1.}
 
 \item{eta_init}{Initial eta value. Either scalar or vector of length p.}
 
@@ -53,4 +53,6 @@ Baseline sampler inspired by the Yang-style TPB parameterization
 a_j = eta_j and b_j = 1 - eta_j. This keeps the FPB extra shape parameter
 fixed at sigma_j = 1, so the sampler remains a three-parameter TPB model
 with local shape learning rather than the full four-parameter beta prior.
+Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+matching the main TPB sampler.
 }

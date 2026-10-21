@@ -15,7 +15,8 @@ Gibbs_beta(
   lambda = NULL,
   woodbury = FALSE,
   diagX = FALSE,
-  omega = NULL
+  omega = NULL,
+  local_var = NULL
 )
 }
 \arguments{
@@ -24,7 +25,7 @@ Gibbs_beta(
 \item{y}{n*1 response vector}
 
 \item{phi}{Local beta variance scale. This is omega in the EB sampler,
-and phi * a / b inside the fully Bayesian sampler.}
+or phi * a / b in the mean-one nu/lambda representation of marginal TPB.}
 
 \item{sigmaSq}{error variance (scalar)}
 
@@ -33,6 +34,8 @@ and phi * a / b inside the fully Bayesian sampler.}
 \item{woodbury}{binary logic variable, apply Woodbury identity or not}
 
 \item{diagX}{binary logic variable, if TRUE assumes X is diagonal}
+
+\item{local_var}{Optional local prior variances, used after marginal MH.}
 }
 \value{
 posterior vector beta

@@ -1,7 +1,8 @@
 #' Fit Bayesian linear regression with the Dirichlet-Laplace prior
 #'
 #' Gibbs sampler for the Dirichlet-Laplace shrinkage prior of Bhattacharya
-#' et al. (2015).  The regression model is y = X beta + e with no intercept;
+#' et al. (2015), with the update order corrected by Gruber et al. (2025).
+#' The regression model is y = X beta + e with no intercept;
 #' callers should center y and standardize X when that is desired.
 #'
 #' @param X n by p design matrix.
@@ -11,8 +12,7 @@
 #' @param thin Save every thin-th post-warmup draw.
 #' @param hyper Dirichlet concentration parameter.  If NULL, use 1 / max(n, p).
 #' @param sigma_a,sigma_b Shape and scale of the inverse-gamma prior on sigma^2.
-#'   The default IG(1.5, 0.5) matches the variance prior used in the other
-#'   baseline samplers in these simulations.
+#'   The default IG(1.5, 0.5) matches the main TPB sampler.
 #' @param woodbury Use the fast p > n Gaussian update.
 #' @param seed Optional RNG seed.
 #' @return A list containing posterior beta samples and scalar traces.
@@ -50,8 +50,8 @@ dl_regression <- function(X, y,
   phi <- rep(1 / p, p)
   tau <- 1
 
-  xtx <- crossprod(X)
-  xty <- crossprod(X, y)
+  xtx <- if (woodbury && p > n) NULL else crossprod(X)
+  xty <- if (woodbury && p > n) NULL else crossprod(X, y)
   save_id <- 0L
 
   for (iter in seq_len(total_iter)) {
@@ -72,33 +72,10 @@ dl_regression <- function(X, y,
     )
     sigma <- sqrt(sigma2)
 
-    abs_beta <- pmax(abs(beta), .Machine$double.xmin)
-
-    inv_psi_mean <- pmax(sigma * phi * tau / abs_beta, .Machine$double.xmin)
-    inv_psi <- statmod::rinvgauss(p, mean = inv_psi_mean, shape = 1)
-    local_psi <- 1 / pmax(inv_psi, .Machine$double.xmin)
-
-    # R2D2::dl samples tau | phi, beta with chi = 2 sum_j |beta_j| /
-    # (sigma phi_j), followed by phi | beta with chi_j = 2 |beta_j| / sigma.
-    # The phi conditional does not include tau after normalizing the latent
-    # T_j variables to the simplex.
-    tau_chi <- pmax(2 * sum(abs_beta / (sigma * pmax(phi, .Machine$double.xmin))),
-                    .Machine$double.xmin)
-    tau <- GIGrvg::rgig(
-      1,
-      lambda = p * (hyper - 1),
-      chi = tau_chi,
-      psi = 1
-    )
-    tau <- max(tau, .Machine$double.xmin)
-
-    phi_gig_chi <- pmax(2 * abs_beta / sigma, .Machine$double.xmin)
-    phi_raw <- vapply(
-      phi_gig_chi,
-      function(chi) GIGrvg::rgig(1, lambda = hyper - 1, chi = chi, psi = 1),
-      numeric(1)
-    )
-    phi <- phi_raw / sum(phi_raw)
+    scales <- dl_draw_scales(beta, sigma, hyper)
+    phi <- scales$phi
+    tau <- scales$tau
+    local_psi <- scales$psi
 
     if (iter %in% save_iter) {
       save_id <- save_id + 1L
@@ -115,6 +92,29 @@ dl_regression <- function(X, y,
     tau_samples = tau_samples,
     hyper = hyper
   )
+}
+
+# Joint conditional: phi | beta, then tau | phi,beta, then psi | phi,tau,beta.
+# The first two updates marginalize psi, so their order cannot be reversed.
+# Gruber et al. (2025), https://doi.org/10.1080/01621459.2025.2540256
+dl_draw_scales <- function(beta, sigma, hyper) {
+  p <- length(beta)
+  abs_beta <- pmax(abs(beta), .Machine$double.xmin)
+  phi_gig_chi <- pmax(2 * abs_beta / sigma, .Machine$double.xmin)
+  phi_raw <- vapply(phi_gig_chi, function(chi) {
+    GIGrvg::rgig(1, lambda = hyper - 1, chi = chi, psi = 1)
+  }, numeric(1))
+  phi <- phi_raw / sum(phi_raw)
+
+  tau_chi <- max(2 * sum(abs_beta / (sigma * pmax(phi, .Machine$double.xmin))),
+                 .Machine$double.xmin)
+  tau <- GIGrvg::rgig(1, lambda = p * (hyper - 1), chi = tau_chi, psi = 1)
+  tau <- max(tau, .Machine$double.xmin)
+
+  inv_psi_mean <- pmax(sigma * phi * tau / abs_beta, .Machine$double.xmin)
+  inv_psi <- statmod::rinvgauss(p, mean = inv_psi_mean, shape = 1)
+  psi <- 1 / pmax(inv_psi, .Machine$double.xmin)
+  list(phi = phi, tau = tau, psi = psi)
 }
 
 dl_draw_beta <- function(X, y, xtx, xty, sigma2, local_var, woodbury = TRUE) {

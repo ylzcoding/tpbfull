@@ -4,6 +4,8 @@
 #' a_j = eta_j and b_j = 1 - eta_j. This keeps the FPB extra shape parameter
 #' fixed at sigma_j = 1, so the sampler remains a three-parameter TPB model
 #' with local shape learning rather than the full four-parameter beta prior.
+#' Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+#' matching the main TPB sampler.
 #'
 #' @param X n by p design matrix.
 #' @param y Response vector of length n.
@@ -13,7 +15,7 @@
 #' @param diagX Logical; treat X as diagonal.
 #' @param fix_phi Logical; if TRUE, phi is fixed at phi_val.
 #' @param phi_val Fixed or initial value for phi.
-#' @param scale_phi Half-Cauchy scale for sqrt(phi); defaults to 1.
+#' @param scale_phi Half-Cauchy scale for phi (not sqrt(phi)). Defaults to 1.
 #' @param eta_init Initial eta value. Either scalar or vector of length p.
 #' @param mh_step_eta Random-walk proposal sd on logit(eta).
 #' @param seed Optional random seed.
@@ -88,14 +90,6 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
     log_eta_kernel(eta, nu, lambda) + log(eta) + log1p(-eta)
   }
 
-  fitted_values <- function(beta) {
-    if (diagX) {
-      diag(X) * beta
-    } else {
-      as.vector(X %*% beta)
-    }
-  }
-
   for (iter in seq_len(num_total)) {
     beta_cur <- Gibbs_beta(
       X = X, y = y,
@@ -117,8 +111,6 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
         eta_accept[j] <- eta_accept[j] + 1
       }
     }
-    eta_cur <- pmin(pmax(eta_cur, eps), 1 - eps)
-
     chi <- pmax(beta_cur^2 * lambda_cur / phi_cur, .Machine$double.xmin)
     nu_cur <- vapply(seq_len(p), function(j) {
       GIGrvg::rgig(1, lambda = eta_cur[j] - 0.5, chi = chi[j], psi = 2)
@@ -133,27 +125,9 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
     )
     lambda_cur <- pmax(lambda_cur, .Machine$double.xmin)
 
-    resid <- as.vector(y) - fitted_values(beta_cur)
-    sigmaSq_cur <- 1 / stats::rgamma(
-      1,
-      shape = n / 2,
-      rate = max(sum(resid^2) / 2, .Machine$double.xmin)
-    )
-    sigmaSq_cur <- max(sigmaSq_cur, .Machine$double.xmin)
-
+    sigmaSq_cur <- Gibbs_sigmaSq(n, X, y, beta_cur)
     if (!fix_phi) {
-      w <- 1 / stats::rgamma(
-        1,
-        shape = 1,
-        rate = 1 / scale_phi + 1 / phi_cur
-      )
-      phi_rate <- 1 / w + sum(lambda_cur * beta_cur^2 / (2 * nu_cur))
-      phi_cur <- 1 / stats::rgamma(
-        1,
-        shape = (p + 1) / 2,
-        rate = max(phi_rate, .Machine$double.xmin)
-      )
-      phi_cur <- max(phi_cur, .Machine$double.xmin)
+      phi_cur <- Gibbs_phi(phi_cur, beta_cur, nu_cur, lambda_cur, scale_phi)
     }
 
     if (iter > num_burnin) {

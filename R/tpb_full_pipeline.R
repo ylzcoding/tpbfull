@@ -9,7 +9,8 @@
 #' @param num_warmup Integer, total number of warm-up iterations across all chains
 #' @param thinning Integer, thinning interval for saved posterior samples
 #' @param iter_pre_opt Iterations for the model competition pre-optimization EM stage for each candidate
-#' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step
+#' @param pre_opt_burnin,pre_opt_samples Burn-in and saved Gibbs samples within each EM E-step.
+#'   pre_opt_burnin is also used before selection samples at the final EM parameters.
 #' @param omega_init_guess,sigmaSq_init_guess Optional initial guesses for EB omega and sigmaSq
 #' @param init_method Method used to initialize EB omega and sigmaSq when
 #'   explicit initial guesses are not supplied. "ridge" uses ridge regression;
@@ -137,8 +138,8 @@ tpb_full_pipeline <- function(X, y,
     chain_res <- fullGibbs(
       X = X,
       y = y,
-      num_output = posterior_per_chain * thinning,
-      num_burnin = warmup_per_chain * thinning,
+      num_output = posterior_per_chain,
+      num_burnin = warmup_per_chain,
       thin = thinning,
       woodbury = woodbury,
       diagX = diagX,

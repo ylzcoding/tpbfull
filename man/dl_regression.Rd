@@ -31,8 +31,7 @@ dl_regression(
 \item{hyper}{Dirichlet concentration parameter.  If NULL, use 1 / max(n, p).}
 
 \item{sigma_a, sigma_b}{Shape and scale of the inverse-gamma prior on sigma^2.
-The default IG(1.5, 0.5) matches the variance prior used in the other
-baseline samplers in these simulations.}
+The default IG(1.5, 0.5) matches the main TPB sampler.}
 
 \item{woodbury}{Use the fast p > n Gaussian update.}
 
@@ -43,6 +42,7 @@ A list containing posterior beta samples and scalar traces.
 }
 \description{
 Gibbs sampler for the Dirichlet-Laplace shrinkage prior of Bhattacharya
-et al. (2015).  The regression model is y = X beta + e with no intercept;
+et al. (2015), with the update order corrected by Gruber et al. (2025).
+The regression model is y = X beta + e with no intercept;
 callers should center y and standardize X when that is desired.
 }
