@@ -1,4 +1,4 @@
-#' Fully Gibbs Sampler Function with nu/lambda Local Shrinkage
+#' Fully Bayesian TPB sampler with marginal and collapsed updates
 #'
 #' @import mvtnorm
 #' @import coda
@@ -9,32 +9,54 @@
 #' @param thin Integer, thinning interval for saved posterior samples
 #' @param woodbury Logical, use Woodbury identity in beta update
 #' @param diagX Logical, assume diagonal X
-#' @param proposal_type String, "separate", "all_adaptive", or "bi_adaptive".
-#' @param mh_step_a Step size for the a update under the "separate" mode.
-#' @param mh_step_b Step size for the b update under the "separate" mode.
-#' @param mh_step_phi Step size for the phi update under the "separate" mode.
 #' @param adapt_block_size Integer, number of iterations per adaptation block
 #' @param r_opt Numeric, target acceptance rate for adaptive MH (default 0.3)
 #' @param max_log_proposal_sd Maximum marginal proposal standard deviation on
 #'   the log scale for adaptive MH covariance regularization.
 #' @param max_log_mh_step Maximum single proposal move on the log scale. Proposals
 #'   beyond this distance are treated as self-loops.
+#' @param sampler "marginal" integrates local scales out of the hyperparameter
+#'   update; "conditional" retains the original nu, lambda and xi augmentation.
+#' @param interweave_every Apply the additional block once every this many iterations.
+#' @param adapt_slice Tune slice widths during burn-in, then freeze them.
+#' @param interweave Add a beta-collapsed shape/scale update in transformed local scales.
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b,
 #'   s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL
 #'   or invalid, scale_phi = 1 is used.
-#' @return A list containing posterior samples matrices, acceptance rates, covariance matrix.
+#' @details The marginal sampler jointly proposes log(a) and log(phi), then
+#'   updates log(b) with a random-walk proposal of standard deviation 0.1.
+#'   Its proposal covariance is adapted during burn-in and fixed afterward.
+#'   The additional interweaving block updates a, b and phi after integrating
+#'   beta out, then immediately redraws beta. It preserves the model and priors.
+#'   Set interweave = FALSE to skip this block; local scales still use log storage.
+#' @return Posterior samples, MH acceptance rates and final tuning values.
+#'   beta_loglik is log p(beta | a, b, phi); total_logpost adds the hyperpriors.
+#'   For the conditional sampler, marginal log densities are NULL and MH
+#'   acceptance rates are NA because its hyperparameters use slice updates.
 #' @export
 fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
-                      woodbury = TRUE, diagX = FALSE, proposal_type = "bi_adaptive",
-                      mh_step_a = 0.1, mh_step_b = 0.1, mh_step_phi = 0.1,
+                      woodbury = TRUE, diagX = FALSE,
                       adapt_block_size = 100, r_opt = 0.3,
                       max_log_proposal_sd = 0.5,
                       max_log_mh_step = 1.0,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
                                           scale_a = 1, scale_b = 1,
-                                          scale_phi = 1)) {
+                                          scale_phi = 1),
+                      interweave = sampler[1] == "marginal",
+                      sampler = c("marginal", "conditional"),
+                      interweave_every = 1,
+                      adapt_slice = FALSE) {
 
+  sampler <- match.arg(sampler)
+  if (sampler == "conditional" && interweave)
+    stop("Use interweave = FALSE with the conditional sampler.")
+  if (length(interweave_every) != 1 || !is.finite(interweave_every) ||
+      interweave_every < 1 || interweave_every != floor(interweave_every))
+    stop("interweave_every must be a positive integer.")
+  slice_width <- rep(1, 3)
+  slice_jumps <- numeric(3)
+  slice_updates <- 0L
   n <- nrow(X)
   p <- ncol(X)
   total_iter <- num_output + num_burnin
@@ -53,7 +75,6 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       hyper_params$scale_phi <= 0) {
     hyper_params$scale_phi <- 1
   }
-  proposal_type <- match.arg(proposal_type, c("separate", "all_adaptive", "bi_adaptive"))
 
   regularize_log_proposal_cov <- function(cov_mat) {
     cov_mat <- as.matrix(cov_mat)
@@ -75,7 +96,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   }
 
   # Initialize Parameters (Starting Values)
-  sigmaSq <- 1 / rgamma(1, shape = 1.5, rate = 0.5) # var(y)
+  sigmaSq <- 1 / rgamma(1, shape = 1.5, rate = 0.5)
   a       <- switch(
     hyper_params$prior_type_a,
     gamma = rgamma(1, shape = hyper_params$s_a, rate = hyper_params$r_a),
@@ -87,172 +108,77 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_b))
   )
   phi     <- hyper_params$scale_phi
-  local_var <- phi * a / b * rgamma(p, shape = 1) / rgamma(p, shape = 1)
-  beta <- rnorm(p, sd = sqrt(local_var))
+  log_nu <- log(rgamma(p, shape = 1))
+  log_lambda <- log(rgamma(p, shape = 1))
+  log_var <- log(phi) + log(a) - log(b) + log_nu - log_lambda
+  beta <- rnorm(p, sd = exp(log_var/2))
+  log_abs_beta <- log(abs(beta))
+  if (sampler == "conditional") log_xi <- tpb_log_gamma(p, a) + log_nu
 
   # Storage matrices
   store_beta    <- matrix(0, nrow = n_save, ncol = p)
-  store_beta_loglik <- numeric(n_save)
-  store_total_logpost <- numeric(n_save)
+  store_beta_loglik <- store_total_logpost <-
+    if (sampler == "marginal") numeric(n_save) else NULL
   store_scalars <- matrix(0, nrow = n_save, ncol = 4) # sigmaSq, phi, a, b
   colnames(store_scalars) <- c("sigmaSq", "phi", "a", "b")
   idx <- 0
   beta_loglik <- NA_real_
   total_logpost <- NA_real_
 
-  # Progress bar
-  #pb <- txtProgressBar(min = 0, max = total_iter, style = 3)
+  cat(sprintf("Starting %s Gibbs Sampler...\n", sampler))
 
-  cat(sprintf("Starting Marginalized Gibbs Sampler (Mode: %s)...\n", proposal_type))
-
-  accept_count_a <- 0
+  accept_count_a_phi <- 0
   accept_count_b <- 0
-  accept_count_phi <- 0
 
-  if (proposal_type %in% c("all_adaptive", "bi_adaptive")) {
-    d <- if (proposal_type == "all_adaptive") 3 else 2
-    scale_factor <- (2.4^2) / d
-    emp_cov <- diag(d) * 0.01
+  if (sampler == "marginal") {
+    scale_factor <- (2.4^2) / 2
+    emp_cov <- diag(2) * 0.01
     current_proposal_cov <- regularize_log_proposal_cov(scale_factor * emp_cov)
 
-    block_samples <- matrix(0, nrow = adapt_block_size, ncol = d)
+    block_samples <- matrix(0, nrow = adapt_block_size, ncol = 2)
     block_accepts <- 0
     block_idx <- 1
   }
 
-
   for (iter in 1:total_iter) {
-    beta <- Gibbs_beta(X = X, y = y, sigmaSq = sigmaSq,
-                       local_var = local_var,
-                       woodbury = woodbury, diagX = diagX)
+    save_draw <- iter > num_burnin && (iter - num_burnin) %% thin == 0
+    gaussian <- Gibbs_beta(X = X, y = y, sigmaSq = sigmaSq,
+                           log_local_var = log_var, return_log = TRUE,
+                           woodbury = woodbury, diagX = diagX)
+    beta <- gaussian$beta
+    log_abs_beta <- gaussian$log_abs_beta
     sigmaSq <- Gibbs_sigmaSq(n, X, y, beta)
 
-    if (proposal_type == "separate"){
-      a_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "a",
-                                   current_a = a, current_b = b, current_phi = phi,
-                                   s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                   s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi,
-                                   prior_type_a = hyper_params$prior_type_a,
-                                   prior_type_b = hyper_params$prior_type_b,
-                                   scale_a = hyper_params$scale_a,
-                                   scale_b = hyper_params$scale_b,
-                                   mh_step = mh_step_a,
-                                   max_log_mh_step = max_log_mh_step)
-      if (a_new$accepted) {accept_count_a <- accept_count_a + 1}
-      a <- a_new$value
-      beta_loglik <- a_new$log_lik
-      total_logpost <- a_new$total_logpost
-
-      b_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "b",
-                                   current_a = a, current_b = b, current_phi = phi,
-                                   s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                   s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi,
-                                   prior_type_a = hyper_params$prior_type_a,
-                                   prior_type_b = hyper_params$prior_type_b,
-                                   scale_a = hyper_params$scale_a,
-                                   scale_b = hyper_params$scale_b,
-                                   mh_step = mh_step_b,
-                                   max_log_mh_step = max_log_mh_step)
-      if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
-      b <- b_new$value
-      beta_loglik <- b_new$log_lik
-      total_logpost <- b_new$total_logpost
-
-      phi_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "phi",
-                                     current_a = a, current_b = b, current_phi = phi,
-                                     s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                     s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                     scale_phi = hyper_params$scale_phi,
-                                     prior_type_a = hyper_params$prior_type_a,
-                                     prior_type_b = hyper_params$prior_type_b,
-                                     scale_a = hyper_params$scale_a,
-                                     scale_b = hyper_params$scale_b,
-                                     mh_step = mh_step_phi,
-                                     max_log_mh_step = max_log_mh_step)
-      if (phi_new$accepted) {accept_count_phi <- accept_count_phi + 1}
-      phi <- phi_new$value
-      beta_loglik <- phi_new$log_lik
-      total_logpost <- phi_new$total_logpost
-    } else if (proposal_type == "all_adaptive") {
-      a_b_phi_new <- run_marginal_mh_tri_a_b_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
-                                                 s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                                 s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                                 scale_phi = hyper_params$scale_phi,
-                                                 prior_type_a = hyper_params$prior_type_a,
-                                                 prior_type_b = hyper_params$prior_type_b,
-                                                 scale_a = hyper_params$scale_a,
-                                                 scale_b = hyper_params$scale_b,
-                                                 cov_matrix = current_proposal_cov,
-                                                 max_log_mh_step = max_log_mh_step)
-      if (a_b_phi_new$accepted) {
-        accept_count_a <- accept_count_a + 1
-        accept_count_b <- accept_count_b + 1
-        accept_count_phi <- accept_count_phi + 1
-      }
-      a   <- a_b_phi_new$a
-      b   <- a_b_phi_new$b
-      phi <- a_b_phi_new$phi
-      beta_loglik <- a_b_phi_new$log_lik
-      total_logpost <- a_b_phi_new$total_logpost
-
-      if (iter <= num_burnin) {
-        block_samples[block_idx, ] <- c(log(a), log(b), log(phi))
-        if (a_b_phi_new$accepted) {block_accepts <- block_accepts + 1}
-
-        if (block_idx == adapt_block_size) {
-          current_r <- block_accepts / adapt_block_size
-          log_scale <- log(scale_factor) + 0.1 * (current_r - r_opt)
-          scale_factor <- exp(log_scale)
-          emp_cov <- cov(block_samples) + diag(3) * 1e-6
-          current_proposal_cov <- regularize_log_proposal_cov(scale_factor * emp_cov)
-
-          block_idx <- 1
-          block_accepts <- 0
-        } else {
-          block_idx <- block_idx + 1
+    log_params_before <- NULL
+    if (sampler == "conditional") {
+      local <- tpb_conditional_locals(log_abs_beta, log_lambda, log_xi, a, b, phi)
+      log_nu <- local$nu; log_lambda <- local$lambda; log_xi <- local$xi
+      target <- tpb_conditional_target(log_abs_beta, log_nu, log_lambda, log_xi, hyper_params)
+      log_params <- log_params_before <- log(c(a, b, phi))
+      for (j in 1:3) {
+        density <- function(value) {
+          proposal <- log_params
+          proposal[j] <- value
+          target(proposal)
         }
+        log_params[j] <- tpb_slice(log_params[j], density, slice_width[j])
       }
-    } else if (proposal_type == "bi_adaptive") {
-      a_phi_new <- run_marginal_mh_bi_a_phi(beta_vec = beta, current_a = a, current_b = b, current_phi = phi,
-                                            s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                            s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                            scale_phi = hyper_params$scale_phi,
-                                            prior_type_a = hyper_params$prior_type_a,
-                                            prior_type_b = hyper_params$prior_type_b,
-                                            scale_a = hyper_params$scale_a,
-                                            scale_b = hyper_params$scale_b,
-                                            cov_matrix = current_proposal_cov,
-                                            max_log_mh_step = max_log_mh_step)
-      if (a_phi_new$accepted) {
-        accept_count_a <- accept_count_a + 1
-        accept_count_phi <- accept_count_phi + 1
-      }
-      a <- a_phi_new$a
-      phi <- a_phi_new$phi
-      beta_loglik <- a_phi_new$log_lik
-      total_logpost <- a_phi_new$total_logpost
-
-      b_new <- run_marginal_mh_uni(beta_vec = beta, target_param = "b",
-                                   current_a = a, current_b = b, current_phi = phi,
-                                   s_prior_a = hyper_params$s_a, r_prior_a = hyper_params$r_a,
-                                   s_prior_b = hyper_params$s_b, r_prior_b = hyper_params$r_b,
-                                   scale_phi = hyper_params$scale_phi,
-                                   prior_type_a = hyper_params$prior_type_a,
-                                   prior_type_b = hyper_params$prior_type_b,
-                                   scale_a = hyper_params$scale_a,
-                                   scale_b = hyper_params$scale_b,
-                                   mh_step = mh_step_b,
-                                   max_log_mh_step = max_log_mh_step)
-      if (b_new$accepted) {accept_count_b <- accept_count_b + 1}
-      b <- b_new$value
-      beta_loglik <- b_new$log_lik
-      total_logpost <- b_new$total_logpost
+      a <- exp(log_params[1]); b <- exp(log_params[2]); phi <- exp(log_params[3])
+      log_var <- log_params[3] + log_params[1] - log_params[2] + log_nu - log_lambda
+    } else {
+      mh <- run_marginal_mh(beta, a, b, phi, hyper_params, current_proposal_cov,
+                             max_log_mh_step, log_abs_beta)
+      if (mh$accepted_a_phi) accept_count_a_phi <- accept_count_a_phi + 1
+      if (mh$accepted_b) accept_count_b <- accept_count_b + 1
+      a   <- mh$a
+      b   <- mh$b
+      phi <- mh$phi
+      beta_loglik <- mh$log_lik
+      total_logpost <- mh$total_logpost
 
       if (iter <= num_burnin) {
         block_samples[block_idx, ] <- c(log(a), log(phi))
-        if (a_phi_new$accepted) {block_accepts <- block_accepts + 1}
+        if (mh$accepted_a_phi) {block_accepts <- block_accepts + 1}
 
         if (block_idx == adapt_block_size) {
           current_r <- block_accepts / adapt_block_size
@@ -267,35 +193,48 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
           block_idx <- block_idx + 1
         }
       }
-    } else {
-      stop("Invalid proposal_type! Choose 'separate', 'all_adaptive', or 'bi_adaptive'.")
     }
 
     # Marginal MH discards the old local scales. Restore their conditional
     # distribution under the updated a, b, phi before the next beta update.
-    local_var <- tpb_draw_local_var(beta, a, b, phi)
-
-    if (iter > num_burnin) {
-      if ((iter - num_burnin) %% thin == 0) {
-        idx <- idx + 1
-        if (idx <= n_save) {
-          store_beta[idx, ] <- beta
-          store_beta_loglik[idx] <- beta_loglik
-          store_total_logpost[idx] <- total_logpost
-          store_scalars[idx, ] <- c(sigmaSq, phi, a, b)
-        }
+    if (sampler == "marginal")
+      log_var <- tpb_draw_local_var(beta,a,b,phi,log_abs_beta,return_log=TRUE)
+    if (interweave && iter %% interweave_every == 0) {
+      log_params_before <- log(c(a, b, phi))
+      moved <- tpb_interweave(X,y,log_var,a,b,phi,sigmaSq,hyper_params,
+                             woodbury,diagX,slice_width)
+      a <- moved$a; b <- moved$b; phi <- moved$phi
+      beta <- moved$beta; log_var <- moved$log_var
+      log_abs_beta <- moved$log_abs_beta
+      if (save_draw) {
+        density <- log_marginal_posterior(a, b, phi, beta, hyper_params, log_abs_beta)
+        beta_loglik <- density$log_lik
+        total_logpost <- density$log_posterior
       }
     }
-    # Update progress
-    # if (iter %% 100 == 0) setTxtProgressBar(pb, iter)
+
+    if (adapt_slice && iter <= num_burnin && !is.null(log_params_before)) {
+      slice_updates <- slice_updates + 1L
+      slice_jumps <- slice_jumps + abs(log(c(a, b, phi)) - log_params_before)
+      if (slice_updates %% adapt_block_size == 0) {
+        width <- 2 * slice_jumps / adapt_block_size
+        slice_width[width > 0] <- width[width > 0]
+        slice_jumps[] <- 0
+      }
+    }
+    if (save_draw) {
+      idx <- idx + 1
+      store_beta[idx, ] <- beta
+      if (sampler == "marginal") {
+        store_beta_loglik[idx] <- beta_loglik
+        store_total_logpost[idx] <- total_logpost
+      }
+      store_scalars[idx, ] <- c(sigmaSq, phi, a, b)
+    }
   }
 
-  accept_a <- accept_count_a / total_iter
-  accept_b <- accept_count_b / total_iter
-  accept_phi <- accept_count_phi / total_iter
-  # close(pb)
-
-  ### Diagnostics & Summary
+  accept_a_phi <- if (sampler == "marginal") accept_count_a_phi / total_iter else NA_real_
+  accept_b <- if (sampler == "marginal") accept_count_b / total_iter else NA_real_
 
   result <- list(
     samples = list(
@@ -305,13 +244,16 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
       scalars = store_scalars
     ),
     acceptance_rates = list(
-      a = accept_a,
+      a = accept_a_phi,
       b = accept_b,
-      phi = accept_phi
+      phi = accept_a_phi
     ),
-    hyper_params = hyper_params
+    hyper_params = hyper_params,
+    sampler = sampler,
+    interweave_every = if (interweave) interweave_every else NULL,
+    slice_width = setNames(slice_width, c("a", "b", "phi"))
   )
-  if (proposal_type %in% c("all_adaptive", "bi_adaptive")) {
+  if (sampler == "marginal") {
     result$final_proposal_cov <- current_proposal_cov
     result$final_scale_factor <- scale_factor
   }

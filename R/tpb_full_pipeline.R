@@ -132,6 +132,7 @@ tpb_full_pipeline <- function(X, y,
   chains_accept <- vector("list", num_chains)
   chains_cov <- vector("list", num_chains)
   chains_scale <- vector("list", num_chains)
+  chains_width <- vector("list", num_chains)
 
   for (i in seq_len(num_chains)) {
     cat(sprintf("Running fullGibbs chain %d / %d ...\n", i, num_chains))
@@ -149,11 +150,14 @@ tpb_full_pipeline <- function(X, y,
 
     chains_beta[[i]] <- chain_res$samples$beta
     chains_scalars[[i]] <- chain_res$samples$scalars
-    chains_loglik[[i]] <- chain_res$samples$beta_loglik
-    chains_logpost[[i]] <- chain_res$samples$total_logpost
+    chains_loglik[i] <- list(chain_res$samples$beta_loglik)
+    chains_logpost[i] <- list(chain_res$samples$total_logpost)
     chains_accept[[i]] <- unlist(chain_res$acceptance_rates[c("a", "b", "phi")])
     chains_cov[i] <- list(chain_res$final_proposal_cov)
     chains_scale[i] <- list(chain_res$final_scale_factor)
+    chains_width[[i]] <- chain_res$slice_width
+    sampler <- chain_res$sampler
+    interweave_every <- chain_res$interweave_every
 
     rm(chain_res)
   }
@@ -172,18 +176,11 @@ tpb_full_pipeline <- function(X, y,
   avg_acceptance <- colMeans(accept_matrix)
   diagnostics <- tpb_mcmc_diagnostics(chains_scalars)
 
-  has_adaptive_tuning <- any(vapply(chains_cov, Negate(is.null), logical(1)))
-  avg_cov <- if (has_adaptive_tuning) {
-    Reduce("+", chains_cov[!vapply(chains_cov, is.null, logical(1))]) /
-      sum(!vapply(chains_cov, is.null, logical(1)))
-  } else {
-    NULL
-  }
-  avg_scale <- if (any(vapply(chains_scale, Negate(is.null), logical(1)))) {
-    mean(unlist(chains_scale[!vapply(chains_scale, is.null, logical(1))]))
-  } else {
-    NULL
-  }
+  valid_cov <- Filter(Negate(is.null), chains_cov)
+  avg_cov <- if (length(valid_cov)) Reduce("+", valid_cov) / length(valid_cov) else NULL
+  valid_scale <- unlist(chains_scale)
+  avg_scale <- if (length(valid_scale)) mean(valid_scale) else NULL
+  raw_comp <- competition_result$raw
 
   list(
     samples = list(
@@ -208,10 +205,13 @@ tpb_full_pipeline <- function(X, y,
     ),
     adaptive_tuning = list(
       mean_cov = avg_cov,
-      mean_scale = avg_scale
+      mean_scale = avg_scale,
+      slice_width_per_chain = do.call(rbind, chains_width)
     ),
     diagnostics = diagnostics,
     mcmc_schedule = list(
+      sampler = sampler,
+      interweave_every = interweave_every,
       num_chains = num_chains,
       num_iter_total = num_iter,
       num_warmup_total = num_warmup,
@@ -224,14 +224,14 @@ tpb_full_pipeline <- function(X, y,
     hyper_params = final_hyper_params,
     auto_find = list(
       enabled = isTRUE(auto_find),
-      winner_name = if (is.null(competition_result)) NULL else competition_result$winner_name,
+      winner_name = competition_result$winner_name,
       winning_modes = winning_modes,
-      model_probabilities = if (is.null(competition_result)) NULL else competition_result$raw$model_probabilities,
-      selection_samples = if (is.null(competition_result)) NULL else competition_result$raw$selection_samples,
-      IS_period = if (is.null(competition_result)) NULL else competition_result$raw$IS_period,
-      min_em_ess_fraction = if (is.null(competition_result)) NULL else competition_result$raw$min_em_ess_fraction,
-      pre_optimized_trajectories = if (is.null(competition_result)) NULL else competition_result$raw$pre_optimized_trajectories,
-      importance = if (is.null(competition_result)) NULL else competition_result$raw$importance
+      model_probabilities = raw_comp$model_probabilities,
+      selection_samples = raw_comp$selection_samples,
+      IS_period = raw_comp$IS_period,
+      min_em_ess_fraction = raw_comp$min_em_ess_fraction,
+      pre_optimized_trajectories = raw_comp$pre_optimized_trajectories,
+      importance = raw_comp$importance
     )
   )
 }

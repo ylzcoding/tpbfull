@@ -16,7 +16,12 @@ tpb_fullyBayes_eta_uniform(
   scale_phi = 1,
   eta_init = 0.5,
   mh_step_eta = 2.5,
-  seed = NULL
+  seed = NULL,
+  sampler = c("conditional", "marginal"),
+  interweave = sampler[1] == "marginal",
+  interweave_every = 1,
+  adapt_slice = FALSE,
+  store_locals = sampler[1] == "conditional"
 )
 }
 \arguments{
@@ -43,10 +48,21 @@ tpb_fullyBayes_eta_uniform(
 \item{mh_step_eta}{Random-walk proposal sd on logit(eta).}
 
 \item{seed}{Optional random seed.}
+
+\item{sampler}{"conditional" retains nu, lambda and xi; "marginal" integrates
+the local scales out of the eta/phi update and refreshes them exactly.}
+
+\item{interweave}{Add the transformed, beta-collapsed update for the marginal sampler.}
+
+\item{interweave_every}{Apply the additional block once every this many iterations.}
+
+\item{adapt_slice}{Tune phi slice width during burn-in, then freeze it.}
+
+\item{store_locals}{Save nu and lambda draws for the conditional sampler.}
 }
 \value{
-A list containing posterior samples for beta, eta, a, b, lambda,
-  nu, sigmaSq, phi, and eta acceptance rates.
+Posterior draws for beta, eta, a, b, sigmaSq and phi; acceptance rates
+  and final slice width. nu and lambda are NULL unless store_locals = TRUE.
 }
 \description{
 Baseline sampler inspired by the Yang-style TPB parameterization
@@ -55,4 +71,8 @@ fixed at sigma_j = 1, so the sampler remains a three-parameter TPB model
 with local shape learning rather than the full four-parameter beta prior.
 Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
 matching the main TPB sampler.
+}
+\details{
+The additional block uses a joint MH proposal on the local logit(eta)
+  vector and a slice update of log(phi), then immediately redraws beta.
 }

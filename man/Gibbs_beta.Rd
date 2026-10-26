@@ -7,8 +7,6 @@
 Gibbs_beta(
   X,
   y,
-  a = NULL,
-  b = NULL,
   phi = NULL,
   sigmaSq = NULL,
   nu = NULL,
@@ -16,7 +14,9 @@ Gibbs_beta(
   woodbury = FALSE,
   diagX = FALSE,
   omega = NULL,
-  local_var = NULL
+  local_var = NULL,
+  log_local_var = NULL,
+  return_log = FALSE
 )
 }
 \arguments{
@@ -24,8 +24,8 @@ Gibbs_beta(
 
 \item{y}{n*1 response vector}
 
-\item{phi}{Local beta variance scale. This is omega in the EB sampler,
-or phi * a / b in the mean-one nu/lambda representation of marginal TPB.}
+\item{phi}{Variance multiplier in D = phi * nu / lambda. For unit-rate
+local scales this is the TPB phi; for mean-one scales use phi * a / b.}
 
 \item{sigmaSq}{error variance (scalar)}
 
@@ -35,10 +35,17 @@ or phi * a / b in the mean-one nu/lambda representation of marginal TPB.}
 
 \item{diagX}{binary logic variable, if TRUE assumes X is diagonal}
 
+\item{omega}{Alias for the variance multiplier in the EB parameterization.}
+
 \item{local_var}{Optional local prior variances, used after marginal MH.}
+
+\item{log_local_var}{Optional log prior variances, preserving very small scales.}
+
+\item{return_log}{Return beta together with its sign and log absolute value.}
 }
 \value{
-posterior vector beta
+Posterior beta vector, or a list with beta, log_abs_beta and sign_beta
+  when return_log is TRUE.
 }
 \description{
 Draw posterior beta under the nu/lambda TPB augmentation

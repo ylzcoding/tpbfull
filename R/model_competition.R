@@ -100,21 +100,6 @@ eb_log_gaussian_likelihood <- function(beta_vec, X, y, sigmaSq,
     sum(resid^2) / (2 * sigmaSq)
 }
 
-eb_log_posterior_kernel_beta <- function(beta_vec, model_params, X, y,
-                                         diagX = FALSE) {
-  eb_log_gaussian_likelihood(
-    beta_vec = beta_vec,
-    X = X,
-    y = y,
-    sigmaSq = model_params$sigmaSq,
-    diagX = diagX
-  ) +
-    eb_log_tpb_marginal_beta(
-      beta_vec = beta_vec,
-      model_params = model_params
-    )
-}
-
 eb_logsumexp <- function(x) {
   x <- x[!is.na(x)]
   if (length(x) == 0) {
@@ -155,15 +140,13 @@ eb_precompute_kernel_scores <- function(presampled_betas,
     n_s <- nrow(beta_mat)
     kernel_mat <- matrix(NA_real_, nrow = n_s, ncol = length(model_names),
                         dimnames = list(NULL, model_names))
+    ssr <- eb_sample_ssr(beta_mat, X, y, diagX)
     for (target_name in model_names) {
-      kernel_mat[, target_name] <- vapply(seq_len(n_s), function(i) {
-        eb_log_posterior_kernel_beta(
-          beta_vec = beta_mat[i, ],
-          model_params = pre_optimized_params[[target_name]],
-          X = X,
-          y = y,
-          diagX = diagX
-        )
+      params <- pre_optimized_params[[target_name]]
+      sigmaSq <- eb_positive_finite(params$sigmaSq, 1e-16)
+      log_lik <- -0.5 * nrow(X) * log(2 * pi * sigmaSq) - ssr / (2 * sigmaSq)
+      kernel_mat[, target_name] <- log_lik + vapply(seq_len(n_s), function(i) {
+        eb_log_tpb_marginal_beta(beta_mat[i, ], params)
       }, numeric(1))
     }
     out[[source_name]] <- kernel_mat
@@ -263,10 +246,6 @@ eb_reverse_logistic_selection <- function(presampled_betas,
   )
 }
 
-eb_d_tpb <- function(beta_vec, a, b, phi) {
-  exp(tpb_log_marginal_beta(beta_vec, a, b, phi))
-}
-
 eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
                               beta0, nu0, lambda0, xi0, burn = 0,
                               woodbury = FALSE, diagX = FALSE) {
@@ -289,7 +268,7 @@ eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
 
   for (i in seq_len(total)) {
     beta <- Gibbs_beta(
-      X = X, y = y, a = a, b = b, phi = omega_current,
+      X = X, y = y, omega = omega_current,
       sigmaSq = sigmaSq_current, nu = nu, lambda = lambda,
       woodbury = woodbury, diagX = diagX
     )
@@ -313,23 +292,14 @@ eb_getsamples_emp <- function(num, X, y, a, b, omega, sigmaSq,
   )
 }
 
+eb_sample_ssr <- function(beta_matrix, X, y, diagX = FALSE) {
+  fitted <- if (diagX) t(beta_matrix) * diag(X) else tcrossprod(X, beta_matrix)
+  colSums((as.vector(y) - fitted)^2)
+}
+
 eb_m_step_sigmaSq <- function(beta_matrix, X, y, diagX = FALSE) {
-  y <- as.vector(y)
-  n <- nrow(X)
-  num_samples <- nrow(beta_matrix)
-
-  ssr <- if (diagX) {
-    x_diag <- diag(X)
-    vapply(seq_len(num_samples), function(i) {
-      sum((y - x_diag * beta_matrix[i, ])^2)
-    }, numeric(1))
-  } else {
-    vapply(seq_len(num_samples), function(i) {
-      sum((y - X %*% beta_matrix[i, ])^2)
-    }, numeric(1))
-  }
-
-  eb_positive_finite(mean(ssr) / n, 1e-16)
+  ssr <- eb_sample_ssr(beta_matrix, X, y, diagX)
+  eb_positive_finite(mean(ssr) / nrow(X), 1e-16)
 }
 
 eb_m_step_omega <- function(beta_matrix, lambda_matrix, nu_matrix) {
@@ -432,21 +402,8 @@ eb_weighted_m_step_sigmaSq <- function(beta_matrix, weights, X, y,
     return(eb_m_step_sigmaSq(beta_matrix, X, y, diagX))
   }
 
-  y <- as.vector(y)
-  n <- nrow(X)
-  num_samples <- nrow(beta_matrix)
-  ssr <- if (diagX) {
-    x_diag <- diag(X)
-    vapply(seq_len(num_samples), function(i) {
-      sum((y - x_diag * beta_matrix[i, ])^2)
-    }, numeric(1))
-  } else {
-    vapply(seq_len(num_samples), function(i) {
-      sum((y - X %*% beta_matrix[i, ])^2)
-    }, numeric(1))
-  }
-
-  eb_positive_finite(sum(ssr * weights) / (w_sum * n), 1e-16)
+  ssr <- eb_sample_ssr(beta_matrix, X, y, diagX)
+  eb_positive_finite(sum(ssr * weights) / (w_sum * nrow(X)), 1e-16)
 }
 
 eb_weighted_m_step_omega <- function(beta_matrix, lambda_matrix, nu_matrix,
@@ -482,10 +439,10 @@ eb_run_em_engine <- function(X, y,
     stop("min_em_ess_fraction must be a non-negative number.")
   }
 
-  a_vec <- c(eb_positive_finite(a_init, 1e-6))
-  b_vec <- c(eb_positive_finite(b_init, 1e-6))
-  omega_vec <- c(eb_positive_finite(omega_init, 1e-16))
-  sigmaSq_vec <- c(eb_positive_finite(sigmaSq_init, 1e-16))
+  a <- eb_positive_finite(a_init, 1e-6)
+  b <- eb_positive_finite(b_init, 1e-6)
+  omega_vec <- eb_positive_finite(omega_init, 1e-16)
+  sigmaSq_vec <- eb_positive_finite(sigmaSq_init, 1e-16)
   beta_diff_vec <- numeric(0)
   em_is_ess <- numeric(0)
   em_is_used <- logical(0)
@@ -495,14 +452,14 @@ eb_run_em_engine <- function(X, y,
   beta0 <- rnorm(p, mean = 0, sd = sqrt(sigmaSq_vec[1]))
   nu0 <- rgamma(p, 1, 1)
   lambda0 <- rgamma(p, 1, 1)
-  xi0 <- Gibbs_xi(p = p, a = a_vec[1], nu = nu0)
+  xi0 <- Gibbs_xi(p = p, a = a, nu = nu0)
   last_beta_hat <- NULL
   source_samples <- NULL
   source_params <- NULL
 
   for (k in seq_len(max_iter)) {
     current_params <- list(
-      a = a_vec[k], b = b_vec[k],
+      a = a, b = b,
       omega = omega_vec[k], sigmaSq = sigmaSq_vec[k]
     )
     should_resample <- is.null(source_samples) || ((k - 1) %% IS_period == 0)
@@ -534,7 +491,7 @@ eb_run_em_engine <- function(X, y,
     if (should_resample) {
       samples <- eb_getsamples_emp(
         num = iter_samples, X = X, y = y,
-        a = a_vec[k], b = b_vec[k],
+        a = a, b = b,
         omega = omega_vec[k], sigmaSq = sigmaSq_vec[k],
         beta0 = beta0, nu0 = nu0, lambda0 = lambda0, xi0 = xi0,
         burn = iter_burnin,
@@ -570,13 +527,11 @@ eb_run_em_engine <- function(X, y,
     )
     last_beta_hat <- beta_hat
 
-    a_vec <- c(a_vec, a_vec[k])
-    b_vec <- c(b_vec, b_vec[k])
     sigmaSq_vec <- c(sigmaSq_vec, sigmaSq_new)
     omega_vec <- c(omega_vec, omega_new)
 
     hyper_converged <- eb_isConverged_hyper(
-      a_vec, b_vec, sigmaSq_vec, omega_vec,
+      sigmaSq_vec, omega_vec,
       delta1 = delta1, delta2 = delta2, window_size = window_size
     )
     beta_converged <- length(beta_diff_vec) >= window_size &&
@@ -591,19 +546,19 @@ eb_run_em_engine <- function(X, y,
 
     if (isTRUE(verbose)) {
       cat(k, "-th iteration completed.\n")
-      cat("a=", a_vec[k + 1], "\n")
-      cat("b=", b_vec[k + 1], "\n")
+      cat("a=", a, "\n")
+      cat("b=", b, "\n")
       cat("omega=", omega_vec[k + 1], "\n")
       cat("sigmaSq=", sigmaSq_vec[k + 1], "\n")
     }
   }
 
-  l <- length(a_vec)
+  l <- length(omega_vec)
   list(
-    params = list(a = a_vec[l], b = b_vec[l],
+    params = list(a = a, b = b,
                   omega = omega_vec[l], sigmaSq = sigmaSq_vec[l]),
     final_state = list(beta0 = beta0, nu0 = nu0, lambda0 = lambda0, xi0 = xi0),
-    trajectories = list(a_traj = a_vec, b_traj = b_vec,
+    trajectories = list(a_traj = rep(a, l), b_traj = rep(b, l),
                         sigmaSq_traj = sigmaSq_vec,
                         omega_traj = omega_vec,
                         beta_diff_traj = beta_diff_vec,
@@ -771,7 +726,7 @@ eb_initial_values <- function(X, y, epsilon = 1e-6,
   } else {
     eb_olasso_screen(X, y, epsilon = epsilon)
   }
-  sigmaSq_hat <- max(epsilon, screen$sigmaSq)
+  sigmaSq_hat <- screen$sigmaSq
 
   y_sq_sum <- sum(y^2)
   trace_XX <- sum(X^2)

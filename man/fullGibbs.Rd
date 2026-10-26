@@ -2,7 +2,7 @@
 % Please edit documentation in R/fullGibbs.R
 \name{fullGibbs}
 \alias{fullGibbs}
-\title{Fully Gibbs Sampler Function with nu/lambda Local Shrinkage}
+\title{Fully Bayesian TPB sampler with marginal and collapsed updates}
 \usage{
 fullGibbs(
   X,
@@ -12,16 +12,16 @@ fullGibbs(
   thin = 1,
   woodbury = TRUE,
   diagX = FALSE,
-  proposal_type = "bi_adaptive",
-  mh_step_a = 0.1,
-  mh_step_b = 0.1,
-  mh_step_phi = 0.1,
   adapt_block_size = 100,
   r_opt = 0.3,
   max_log_proposal_sd = 0.5,
   max_log_mh_step = 1,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1)
+    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1),
+  interweave = sampler[1] == "marginal",
+  sampler = c("marginal", "conditional"),
+  interweave_every = 1,
+  adapt_slice = FALSE
 )
 }
 \arguments{
@@ -39,14 +39,6 @@ fullGibbs(
 
 \item{diagX}{Logical, assume diagonal X}
 
-\item{proposal_type}{String, "separate", "all_adaptive", or "bi_adaptive".}
-
-\item{mh_step_a}{Step size for the a update under the "separate" mode.}
-
-\item{mh_step_b}{Step size for the b update under the "separate" mode.}
-
-\item{mh_step_phi}{Step size for the phi update under the "separate" mode.}
-
 \item{adapt_block_size}{Integer, number of iterations per adaptation block}
 
 \item{r_opt}{Numeric, target acceptance rate for adaptive MH (default 0.3)}
@@ -60,10 +52,30 @@ beyond this distance are treated as self-loops.}
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b,
 s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL
 or invalid, scale_phi = 1 is used.}
+
+\item{interweave}{Add a beta-collapsed shape/scale update in transformed local scales.}
+
+\item{sampler}{"marginal" integrates local scales out of the hyperparameter
+update; "conditional" retains the original nu, lambda and xi augmentation.}
+
+\item{interweave_every}{Apply the additional block once every this many iterations.}
+
+\item{adapt_slice}{Tune slice widths during burn-in, then freeze them.}
 }
 \value{
-A list containing posterior samples matrices, acceptance rates, covariance matrix.
+Posterior samples, MH acceptance rates and final tuning values.
+  beta_loglik is log p(beta | a, b, phi); total_logpost adds the hyperpriors.
+  For the conditional sampler, marginal log densities are NULL and MH
+  acceptance rates are NA because its hyperparameters use slice updates.
 }
 \description{
-Fully Gibbs Sampler Function with nu/lambda Local Shrinkage
+Fully Bayesian TPB sampler with marginal and collapsed updates
+}
+\details{
+The marginal sampler jointly proposes log(a) and log(phi), then
+  updates log(b) with a random-walk proposal of standard deviation 0.1.
+  Its proposal covariance is adapted during burn-in and fixed afterward.
+  The additional interweaving block updates a, b and phi after integrating
+  beta out, then immediately redraws beta. It preserves the model and priors.
+  Set interweave = FALSE to skip this block; local scales still use log storage.
 }

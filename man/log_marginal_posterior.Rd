@@ -9,15 +9,8 @@ log_marginal_posterior(
   b,
   phi,
   beta_vec,
-  s_prior_a,
-  r_prior_a,
-  s_prior_b,
-  r_prior_b,
-  scale_phi,
-  prior_type_a = "gamma",
-  prior_type_b = "gamma",
-  scale_a = 1,
-  scale_b = 1
+  hyper_params,
+  log_abs_beta = log(abs(beta_vec))
 )
 }
 \arguments{
@@ -29,23 +22,9 @@ log_marginal_posterior(
 
 \item{beta_vec}{Coefficient vector.}
 
-\item{s_prior_a}{Prior shape parameter for a.}
+\item{hyper_params}{Hyperprior specification used by fullGibbs().}
 
-\item{r_prior_a}{Prior rate parameter for a.}
-
-\item{s_prior_b}{Prior shape parameter for b.}
-
-\item{r_prior_b}{Prior rate parameter for b.}
-
-\item{scale_phi}{Half-Cauchy scale parameter for phi.}
-
-\item{prior_type_a}{prior type for a: "gamma" or "hcauchy"}
-
-\item{prior_type_b}{prior type for b: "gamma" or "hcauchy"}
-
-\item{scale_a}{Half-Cauchy scale parameter for a}
-
-\item{scale_b}{Half-Cauchy scale parameter for b}
+\item{log_abs_beta}{Optional log absolute coefficients, preserving tiny values.}
 }
 \description{
 Compute marginal log posterior for TPB hyperparameters

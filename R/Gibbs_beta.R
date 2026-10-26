@@ -1,39 +1,60 @@
 #' Draw posterior beta under the nu/lambda TPB augmentation
 #' @param X n*p design matrix
 #' @param y n*1 response vector
-#' @param phi Local beta variance scale. This is omega in the EB sampler,
-#'   or phi * a / b in the mean-one nu/lambda representation of marginal TPB.
+#' @param phi Variance multiplier in D = phi * nu / lambda. For unit-rate
+#'   local scales this is the TPB phi; for mean-one scales use phi * a / b.
+#' @param omega Alias for the variance multiplier in the EB parameterization.
 #' @param nu,lambda p*1 local-scale vectors
 #' @param sigmaSq error variance (scalar)
 #' @param local_var Optional local prior variances, used after marginal MH.
+#' @param log_local_var Optional log prior variances, preserving very small scales.
+#' @param return_log Return beta together with its sign and log absolute value.
 #' @param woodbury binary logic variable, apply Woodbury identity or not
 #' @param diagX binary logic variable, if TRUE assumes X is diagonal
-#' @return posterior vector beta
+#' @return Posterior beta vector, or a list with beta, log_abs_beta and sign_beta
+#'   when return_log is TRUE.
 #' @export
-Gibbs_beta <- function(X, y, a = NULL, b = NULL, phi = NULL, sigmaSq = NULL,
+Gibbs_beta <- function(X, y, phi = NULL, sigmaSq = NULL,
                        nu = NULL, lambda = NULL, woodbury = FALSE,
-                       diagX = FALSE, omega = NULL, local_var = NULL) {
-  if (is.null(local_var)) {
-    if (is.null(phi)) phi <- omega
-    if (is.null(phi) || is.null(nu) || is.null(lambda)) {
-      stop("Gibbs_beta requires local_var or phi (or omega), nu, and lambda.")
+                       diagX = FALSE, omega = NULL, local_var = NULL,
+                       log_local_var = NULL, return_log = FALSE) {
+  if (is.null(log_local_var)) {
+    if (is.null(local_var)) {
+      if (is.null(phi)) phi <- omega
+      if (is.null(phi) || is.null(nu) || is.null(lambda)) {
+        stop("Gibbs_beta requires local_var or phi (or omega), nu, and lambda.")
+      }
+      local_var <- phi * pmax(nu, .Machine$double.xmin) /
+        pmax(lambda, .Machine$double.xmin)
     }
-    local_var <- phi * pmax(nu, .Machine$double.xmin) /
-      pmax(lambda, .Machine$double.xmin)
+    local_var <- pmax(local_var, .Machine$double.xmin)
+    sqrt_d <- sqrt(local_var)
+    log_local_var <- log(local_var)
+  } else {
+    sqrt_d <- exp(log_local_var/2)
   }
   if (is.null(sigmaSq)) stop("Gibbs_beta requires sigmaSq.")
   sigmaSq <- max(sigmaSq, .Machine$double.xmin)
-  local_var <- pmax(local_var, .Machine$double.xmin)
+  finish <- function(z) {
+    beta <- sqrt_d * as.vector(z)
+    if (!return_log) return(beta)
+    list(beta=beta,log_abs_beta=log_local_var/2+log(abs(z)),sign_beta=sign(z))
+  }
 
   if (!diagX) {
     n <- nrow(X)
     p <- ncol(X)
-    sqrt_d <- sqrt(local_var)
     A <- sweep(X / sqrt(sigmaSq), 2, sqrt_d, FUN = "*")
+    if (any(!is.finite(A)))
+      return(tpb_gaussian_qr(X, y, sigmaSq, log_local_var, return_log))
     if (!woodbury) {
-      R <- chol(crossprod(A) + diag(p))
+      gram <- crossprod(A)
+      loses_unit <- any(diag(gram) + 1 == diag(gram))
+      R <- if (loses_unit) NULL else
+        tryCatch(chol(gram + diag(p)), error = function(e) NULL)
+      if (is.null(R)) return(tpb_gaussian_qr(X, y, sigmaSq, log_local_var, return_log))
       mean_z <- backsolve(R, forwardsolve(t(R), crossprod(A, y / sqrt(sigmaSq))))
-      beta <- sqrt_d * as.vector(mean_z + backsolve(R, rnorm(p)))
+      beta <- finish(as.vector(mean_z + backsolve(R, rnorm(p))))
     } else {
       u <- rnorm(p)
       delta <- rnorm(n)
@@ -43,23 +64,37 @@ Gibbs_beta <- function(X, y, a = NULL, b = NULL, phi = NULL, sigmaSq = NULL,
       R <- if (loses_unit) NULL else
         tryCatch(chol(gram + diag(n)), error = function(e) NULL)
       if (is.null(R)) {
-        # Large local scales can erase I_n when forming A A' numerically.
-        # SVD of A preserves the +1 without clipping eigenvalues or adding jitter.
-        decomp <- svd(A)
-        correction <- decomp$v %*%
-          ((decomp$d / (1 + decomp$d^2)) * crossprod(decomp$u, rhs))
-        return(sqrt_d * as.vector(u + correction))
+        # Solve in coefficient coordinates when large scales erase the noise.
+        # QR avoids the cancellation in the Woodbury u + correction draw.
+        return(tpb_gaussian_qr(X, y, sigmaSq, log_local_var, return_log))
       } else {
         w <- backsolve(R, forwardsolve(t(R), rhs))
       }
-      beta <- sqrt_d * as.vector(u + crossprod(A, w))
+      beta <- finish(as.vector(u + crossprod(A, w)))
     }
     return(beta)
   }
 
-  prior_precision <- 1 / local_var
-  mean_beta <- ((diag(X) * y) / sigmaSq) /
-    (diag(X)^2 / sigmaSq + prior_precision)
-  var_beta <- 1 / (diag(X)^2 / sigmaSq + prior_precision)
-  rnorm(length(mean_beta)) * sqrt(var_beta) + mean_beta
+  log_s <- pmin(log_local_var/2, .5*log(sigmaSq)-log(abs(diag(X))))
+  A <- diag(X)*exp(log_s)/sqrt(sigmaSq)
+  precision <- A^2 + exp(2*log_s-log_local_var)
+  z <- A*y/sqrt(sigmaSq)/precision + rnorm(length(y))/sqrt(precision)
+  beta <- exp(log_s)*z
+  if (!return_log) return(beta)
+  list(beta=beta, log_abs_beta=log_s+log(abs(z)), sign_beta=sign(z))
+}
+
+# QR of the augmented Gaussian precision, without forming X'X.
+tpb_gaussian_qr <- function(X, y, sigmaSq, log_var, return_log) {
+  p <- ncol(X)
+  log_s <- pmin(log_var/2, .5*(log(sigmaSq)-log(colSums(X^2))))
+  A <- sweep(X/sqrt(sigmaSq), 2, exp(log_s), "*")
+  augmented <- rbind(A, diag(exp(log_s-log_var/2), p))
+  decomp <- qr(augmented, LAPACK=TRUE)
+  rhs <- qr.qty(decomp, c(y/sqrt(sigmaSq), rep(0, p)))[seq_len(p)]
+  z <- numeric(p)
+  z[decomp$pivot] <- backsolve(qr.R(decomp), rhs+rnorm(p))
+  beta <- exp(log_s)*z
+  if (!return_log) return(beta)
+  list(beta=beta, log_abs_beta=log_s+log(abs(z)), sign_beta=sign(z))
 }

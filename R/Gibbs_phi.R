@@ -11,15 +11,5 @@ Gibbs_phi <- function(phi, beta, nu, lambda, scale_phi = 1) {
       tpb_softplus(2 * (z - log(scale_phi)))
   }
 
-  current <- log(phi)
-  height <- log_density(current) - rexp(1)
-  left <- current - runif(1)
-  right <- left + 1
-  while (log_density(left) > height) left <- left - 1
-  while (log_density(right) > height) right <- right + 1
-  repeat {
-    proposal <- runif(1, left, right)
-    if (log_density(proposal) >= height) return(exp(proposal))
-    if (proposal < current) left <- proposal else right <- proposal
-  }
+  exp(tpb_slice(log(phi), log_density))
 }
