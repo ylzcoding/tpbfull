@@ -40,7 +40,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       max_log_proposal_sd = 0.5,
                       max_log_mh_step = 1.0,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
-                                          s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
+                                          s_a = 2.5, r_a = 5, s_b = 2.5, r_b = 2.5,
                                           scale_a = 1, scale_b = 1,
                                           scale_phi = 1),
                       interweave = sampler[1] == "marginal",
@@ -63,7 +63,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
   n_save <- floor(num_output / thin)
   hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
-         s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
+         s_a = 2.5, r_a = 5, s_b = 2.5, r_b = 2.5,
          scale_a = 1, scale_b = 1,
          scale_phi = 1),
     hyper_params

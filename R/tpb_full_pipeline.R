@@ -1,4 +1,4 @@
-#' TPB Full Pipeline with Optional EB Prior Elicitation and Multi-Chain MCMC
+#' TPB Full Pipeline with Prior Calibration and Multi-Chain MCMC
 #'
 #' @param X n*p design matrix
 #' @param y n*1 response vector
@@ -30,17 +30,25 @@
 #'   This should be a named list; each entry must contain numeric a and b.
 #'   The default is tpb_default_candidates().
 #' @param verbose Logical, print model competition progress messages.
+#' @param m0 Optional prior mean effective signal count. With auto_find = FALSE,
+#'   calibrates the half-Cauchy scale for phi once before running the chains.
+#'   Use rho * ncol(X) for an expected proportion rho. NULL uses scale_phi
+#'   from hyper_params without calibration.
+#' @param calibration_points Number of Sobol points for tpb_calibrate_phi().
 #' @param ... Additional arguments passed to fullGibbs()
 #' @return A list containing combined samples, per-chain outputs, diagnostics,
-#'   hyperparameters used, and optional EB competition metadata.
+#'   hyperparameters used, prior calibration results, and optional EB metadata.
+#' @details The fixed-prior default is a ~ Gamma(2.5, 5), b ~ Gamma(2.5, 2.5).
+#'   Calibration integrates the InvGamma(1.5, 0.5) noise prior without using y.
+#'   The calibrated scale stays fixed across all chains and iterations.
 #' @export
 tpb_full_pipeline <- function(X, y,
                               num_chains = 4,
-                              auto_find = TRUE,
+                              auto_find = FALSE,
                               hyper_params = list(prior_type_a = "gamma",
                                                   prior_type_b = "gamma",
-                                                  s_a = 1.5, r_a = 1,
-                                                  s_b = 1.5, r_b = 1,
+                                                  s_a = 2.5, r_a = 5,
+                                                  s_b = 2.5, r_b = 2.5,
                                                   scale_a = 1,
                                                   scale_b = 1,
                                                   scale_phi = 1),
@@ -61,8 +69,12 @@ tpb_full_pipeline <- function(X, y,
                               diagX = FALSE,
                               candidates = tpb_default_candidates(),
                               verbose = TRUE,
+                              m0 = NULL,
+                              calibration_points = 262144,
                               ...) {
   init_method <- match.arg(init_method)
+  if (!is.null(m0) && isTRUE(auto_find))
+    stop("Use auto_find = FALSE when calibrating the prior from m0.")
 
   num_posterior <- num_iter - num_warmup
   warmup_per_chain <- num_warmup %/% num_chains
@@ -71,7 +83,7 @@ tpb_full_pipeline <- function(X, y,
 
   final_hyper_params <- modifyList(
     list(prior_type_a = "gamma", prior_type_b = "gamma",
-         s_a = 1.5, r_a = 1, s_b = 1.5, r_b = 1,
+         s_a = 2.5, r_a = 5, s_b = 2.5, r_b = 2.5,
          scale_a = 1, scale_b = 1,
          scale_phi = 1),
     hyper_params
@@ -117,6 +129,13 @@ tpb_full_pipeline <- function(X, y,
         r_b = rate_b
       )
     )
+  }
+
+  calibration <- NULL
+  if (!is.null(m0)) {
+    calibration <- tpb_calibrate_phi(X, m0, final_hyper_params,
+                                     n_points = calibration_points)
+    final_hyper_params$scale_phi <- calibration$scale_phi
   }
 
   if (is.null(final_hyper_params$scale_phi) ||
@@ -222,6 +241,7 @@ tpb_full_pipeline <- function(X, y,
       posterior_per_chain = posterior_per_chain
     ),
     hyper_params = final_hyper_params,
+    calibration = calibration,
     auto_find = list(
       enabled = isTRUE(auto_find),
       winner_name = competition_result$winner_name,

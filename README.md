@@ -1,4 +1,32 @@
-EM-within-Gibbs for re-parameterized three-parameter beta model
+Fully Bayesian three-parameter beta regression
+
+The default hyperpriors are `a ~ Gamma(2.5, 5)` and `b ~ Gamma(2.5, 2.5)`
+(shape, rate). Set `m0` to the prior mean effective signal count to calibrate
+`phi ~ half-Cauchy(0, scale_phi)` before sampling. For a proportion, use
+`m0 = rho * ncol(X)`.
+
+```r
+fit <- tpb_full_pipeline(X, y, m0 = 0.05 * ncol(X),
+                         num_chains = 4, num_iter = 40000, num_warmup = 20000,
+                         interweave_every = 3, adapt_slice = TRUE)
+fit$hyper_params
+fit$calibration
+```
+
+This runs four chains with 5,000 burn-in and 5,000 retained draws each.
+`auto_find = FALSE` is now the default. The calibration uses X and the priors,
+including `sigma^2 ~ InvGamma(1.5, 0.5)`, without using y. It averages over a,
+b, phi and the local scales, then solves for one fixed half-Cauchy scale shared
+by all chains. With correlated predictors, `m0` is a coordinate reference
+effective count, not prediction degrees of freedom or a literal nonzero count.
+
+`tpb_calibrate_phi(X, m0)` also works separately; its `scale_phi` can be passed
+in `hyper_params` to `fullGibbs()`. It uses deterministic Sobol integration from
+the existing GSL dependency and leaves the R random seed unchanged.
+`integration_change` compares the full and half-sized integration grids at the
+same scale; it is a diagnostic, not an error bound. Increase `n_points` (or
+`calibration_points` in the pipeline) to check accuracy. No integration grids
+are retained. Without `m0`, the supplied `scale_phi` is used as before.
 
 `fullGibbs()` combines marginal MH with a beta-collapsed update of a, b and phi
 in transformed local scales. This preserves the TPB model and hyperpriors while

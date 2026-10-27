@@ -2,15 +2,15 @@
 % Please edit documentation in R/tpb_full_pipeline.R
 \name{tpb_full_pipeline}
 \alias{tpb_full_pipeline}
-\title{TPB Full Pipeline with Optional EB Prior Elicitation and Multi-Chain MCMC}
+\title{TPB Full Pipeline with Prior Calibration and Multi-Chain MCMC}
 \usage{
 tpb_full_pipeline(
   X,
   y,
   num_chains = 4,
-  auto_find = TRUE,
-  hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 1.5, r_a = 1,
-    s_b = 1.5, r_b = 1, scale_a = 1, scale_b = 1, scale_phi = 1),
+  auto_find = FALSE,
+  hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 2.5, r_a = 5,
+    s_b = 2.5, r_b = 2.5, scale_a = 1, scale_b = 1, scale_phi = 1),
   num_iter = 1e+05,
   num_warmup = 25000,
   thinning = 1,
@@ -28,6 +28,8 @@ tpb_full_pipeline(
   diagX = FALSE,
   candidates = tpb_default_candidates(),
   verbose = TRUE,
+  m0 = NULL,
+  calibration_points = 262144,
   ...
 )
 }
@@ -82,12 +84,24 @@ The default is tpb_default_candidates().}
 
 \item{verbose}{Logical, print model competition progress messages.}
 
+\item{m0}{Optional prior mean effective signal count. With auto_find = FALSE,
+calibrates the half-Cauchy scale for phi once before running the chains.
+Use rho * ncol(X) for an expected proportion rho. NULL uses scale_phi
+from hyper_params without calibration.}
+
+\item{calibration_points}{Number of Sobol points for tpb_calibrate_phi().}
+
 \item{...}{Additional arguments passed to fullGibbs()}
 }
 \value{
 A list containing combined samples, per-chain outputs, diagnostics,
-  hyperparameters used, and optional EB competition metadata.
+  hyperparameters used, prior calibration results, and optional EB metadata.
 }
 \description{
-TPB Full Pipeline with Optional EB Prior Elicitation and Multi-Chain MCMC
+TPB Full Pipeline with Prior Calibration and Multi-Chain MCMC
+}
+\details{
+The fixed-prior default is a ~ Gamma(2.5, 5), b ~ Gamma(2.5, 2.5).
+  Calibration integrates the InvGamma(1.5, 0.5) noise prior without using y.
+  The calibrated scale stays fixed across all chains and iterations.
 }
