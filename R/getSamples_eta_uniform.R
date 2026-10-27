@@ -4,7 +4,7 @@
 #' a_j = eta_j and b_j = 1 - eta_j. This keeps the FPB extra shape parameter
 #' fixed at sigma_j = 1, so the sampler remains a three-parameter TPB model
 #' with local shape learning rather than the full four-parameter beta prior.
-#' Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+#' Uses sigma^2 ~ InvGamma(1.5, 0.5) and sqrt(phi) ~ half-Cauchy(0, scale_phi),
 #' matching the main TPB sampler.
 #'
 #' @param X n by p design matrix.
@@ -15,7 +15,11 @@
 #' @param diagX Logical; treat X as diagonal.
 #' @param fix_phi Logical; if TRUE, phi is fixed at phi_val.
 #' @param phi_val Fixed or initial value for phi.
-#' @param scale_phi Half-Cauchy scale for phi (not sqrt(phi)). Defaults to 1.
+#' @param scale_phi Half-Cauchy scale of the quantity selected by prior_type_phi.
+#' @param prior_type_phi "sqrt_hcauchy" for a prior on sqrt(phi), or "hcauchy"
+#'   for the earlier prior on phi itself.
+#' @param m0 Optional prior mean effective signal count; calibrates scale_phi.
+#' @param calibration_points Number of Sobol points used for calibration.
 #' @param eta_init Initial eta value. Either scalar or vector of length p.
 #' @param mh_step_eta Random-walk proposal sd on logit(eta).
 #' @param seed Optional random seed.
@@ -45,9 +49,19 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
                                        interweave = sampler[1] == "marginal",
                                        interweave_every = 1,
                                        adapt_slice = FALSE,
-                                       store_locals = sampler[1] == "conditional") {
+                                       store_locals = sampler[1] == "conditional",
+                                       prior_type_phi = c("sqrt_hcauchy", "hcauchy"),
+                                       m0 = NULL, calibration_points = 262144) {
   if (!is.null(seed)) set.seed(seed)
   sampler <- match.arg(sampler)
+  prior_type_phi <- match.arg(prior_type_phi)
+  if (fix_phi && !is.null(m0)) stop("m0 cannot calibrate a fixed phi.")
+  calibration <- NULL
+  if (!is.null(m0)) {
+    calibration <- tpb_calibrate_phi(X, m0, list(prior_type_phi = prior_type_phi),
+                                     n_points = calibration_points, model = "utpb")
+    scale_phi <- calibration$scale_phi
+  }
   if (sampler == "conditional" && interweave)
     stop("Use interweave = FALSE with the conditional sampler.")
   if (sampler == "marginal" && store_locals)
@@ -62,7 +76,8 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
       any(eta_cur <= 0 | eta_cur >= 1)) stop("eta_init must lie in (0, 1).")
   if (!is.finite(mh_step_eta) || mh_step_eta <= 0) stop("mh_step_eta must be positive.")
   if (!is.finite(scale_phi) || scale_phi <= 0) stop("scale_phi must be positive.")
-  phi_cur <- if (is.null(phi_val)) scale_phi else phi_val
+  phi_cur <- if (!is.null(phi_val)) phi_val else
+    if (prior_type_phi == "sqrt_hcauchy") scale_phi^2 else scale_phi
   if (!is.finite(phi_cur) || phi_cur <= 0) stop("phi_val must be positive.")
   h <- qlogis(eta_cur)
   shape <- tpb_eta_shapes(h)
@@ -118,8 +133,8 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
         log_phi_before <- log(phi_cur)
         target_phi <- function(lp) {
           if (!is.finite(exp(lp)) || exp(lp) <= 0) return(-Inf)
-          -.5*(p*lp + sum(exp(2*log_beta+log_lambda-log_nu-lp))) -
-            tpb_softplus(2*(lp-log(scale_phi))) + lp
+          -.5*(p*lp + sum(exp(2*log_beta+log_lambda-log_nu-lp))) +
+            tpb_log_phi_prior(lp, scale_phi, prior_type_phi) + lp
         }
         phi_cur <- exp(tpb_slice(log_phi_before, target_phi, slice_width))
       }
@@ -127,8 +142,8 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
     } else {
       if (!fix_phi) {
         target_phi <- function(lp) {
-          sum(tpb_log_marginal_beta(beta_cur, shape$a, shape$b, exp(lp), log_beta)) -
-            tpb_softplus(2*(lp-log(scale_phi))) + lp
+          sum(tpb_log_marginal_beta(beta_cur, shape$a, shape$b, exp(lp), log_beta)) +
+            tpb_log_phi_prior(lp, scale_phi, prior_type_phi) + lp
         }
         log_phi <- log(phi_cur)
         proposal_phi <- rnorm(1, log_phi, .1)
@@ -139,7 +154,8 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
       if (interweave && iter %% interweave_every == 0) {
         log_phi_before <- if (!fix_phi) log(phi_cur) else NULL
         moved <- tpb_eta_interweave(X, y, log_var, h, phi_cur, sigmaSq_cur, scale_phi,
-                                    mh_step_eta, slice_width, fix_phi, woodbury, diagX)
+                                    mh_step_eta, slice_width, fix_phi, woodbury, diagX,
+                                    prior_type_phi)
         h <- moved$logit_eta; phi_cur <- moved$phi; log_var <- moved$log_var
         beta_cur <- moved$beta
         shape <- tpb_eta_shapes(h)
@@ -171,5 +187,6 @@ tpb_fullyBayes_eta_uniform <- function(X, y,
        interweave_acceptance = if (block_count > 0) block_accept/block_count else NA_real_,
        sigma_i = rep(1, p), mh_step_eta = mh_step_eta, sampler = sampler,
        interweave_every = if (interweave) interweave_every else NULL,
-       slice_width = slice_width)
+       slice_width = slice_width, scale_phi = scale_phi,
+       prior_type_phi = prior_type_phi, calibration = calibration)
 }

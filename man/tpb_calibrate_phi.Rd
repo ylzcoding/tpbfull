@@ -9,7 +9,8 @@ tpb_calibrate_phi(
   m0,
   hyper_params = list(s_a = 2.5, r_a = 5, s_b = 2.5, r_b = 2.5),
   sigmaSq = NULL,
-  n_points = 262144
+  n_points = 262144,
+  model = c("tpb", "fixed", "utpb")
 )
 }
 \arguments{
@@ -18,16 +19,21 @@ tpb_calibrate_phi(
 \item{m0}{Prior mean effective signal count, strictly between 0 and ncol(X).
 For a proportion rho, use m0 = rho * ncol(X).}
 
-\item{hyper_params}{Gamma hyperprior parameters s_a, r_a, s_b, r_b.}
+\item{hyper_params}{Hyperpriors as in fullGibbs(). For model = "fixed",
+supply a and b instead. prior_type_phi selects the global half-Cauchy prior.}
 
 \item{sigmaSq}{Optional reference noise variance for calibration. NULL
 integrates over the sampler's InvGamma(1.5, 0.5) noise prior.}
 
 \item{n_points}{Number of deterministic Sobol integration points.
 Use a power of two; increase it to check integration accuracy.}
+
+\item{model}{"tpb" for random a,b, "fixed" for fixed a,b, or "utpb" for
+eta ~ Uniform(0,1), a = eta, b = 1-eta.}
 }
 \value{
-A list with scale_phi, m0, expected_m0, n_points, sigmaSq, and
+A list with scale_phi, prior_type_phi, model, m0, expected_m0,
+  n_points, sigmaSq, hyper_params, and
   integration_change: the absolute change in expected_m0 when using half
   the integration points at the same scale. This is a numerical diagnostic,
   not an error bound.
@@ -36,14 +42,16 @@ A list with scale_phi, m0, expected_m0, n_points, sigmaSq, and
 Calibrate the half-Cauchy scale from a prior effective signal count
 }
 \details{
-Calibrates phi itself, not sqrt(phi). The target is the prior mean
+The default is sqrt(phi) ~ half-Cauchy(0, scale_phi). Set
+  prior_type_phi = "hcauchy" in hyper_params for the earlier prior on phi.
+  The target is the prior mean
   of sum(d_j * phi * v_j/l_j / (1 + d_j * phi * v_j/l_j)), where
   v_j ~ Gamma(a, 1), l_j ~ Gamma(b, 1), and d_j = sum(X[,j]^2)/sigmaSq.
   With correlated predictors this is a
   coordinate reference count, not prediction degrees of freedom.
 
-  Both a and v are integrated analytically. Sobol integration averages over
-  b, l, the standard half-Cauchy multiplier, an exponential integration
-  variable, the noise prior (unless sigmaSq is supplied), and column norms.
+  v is integrated analytically; a is also integrated analytically when its
+  hyperprior is Gamma. Sobol integration averages over the remaining prior
+  variables, an exponential integration variable, and column norms.
   No response data or MCMC draws are used, and the R random seed is unchanged.
 }

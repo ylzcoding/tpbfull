@@ -21,7 +21,10 @@ tpb_fullyBayes_eta_uniform(
   interweave = sampler[1] == "marginal",
   interweave_every = 1,
   adapt_slice = FALSE,
-  store_locals = sampler[1] == "conditional"
+  store_locals = sampler[1] == "conditional",
+  prior_type_phi = c("sqrt_hcauchy", "hcauchy"),
+  m0 = NULL,
+  calibration_points = 262144
 )
 }
 \arguments{
@@ -41,7 +44,7 @@ tpb_fullyBayes_eta_uniform(
 
 \item{phi_val}{Fixed or initial value for phi.}
 
-\item{scale_phi}{Half-Cauchy scale for phi (not sqrt(phi)). Defaults to 1.}
+\item{scale_phi}{Half-Cauchy scale of the quantity selected by prior_type_phi.}
 
 \item{eta_init}{Initial eta value. Either scalar or vector of length p.}
 
@@ -59,6 +62,13 @@ the local scales out of the eta/phi update and refreshes them exactly.}
 \item{adapt_slice}{Tune phi slice width during burn-in, then freeze it.}
 
 \item{store_locals}{Save nu and lambda draws for the conditional sampler.}
+
+\item{prior_type_phi}{"sqrt_hcauchy" for a prior on sqrt(phi), or "hcauchy"
+for the earlier prior on phi itself.}
+
+\item{m0}{Optional prior mean effective signal count; calibrates scale_phi.}
+
+\item{calibration_points}{Number of Sobol points used for calibration.}
 }
 \value{
 Posterior draws for beta, eta, a, b, sigmaSq and phi; acceptance rates
@@ -69,7 +79,7 @@ Baseline sampler inspired by the Yang-style TPB parameterization
 a_j = eta_j and b_j = 1 - eta_j. This keeps the FPB extra shape parameter
 fixed at sigma_j = 1, so the sampler remains a three-parameter TPB model
 with local shape learning rather than the full four-parameter beta prior.
-Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+Uses sigma^2 ~ InvGamma(1.5, 0.5) and sqrt(phi) ~ half-Cauchy(0, scale_phi),
 matching the main TPB sampler.
 }
 \details{

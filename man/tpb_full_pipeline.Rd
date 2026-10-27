@@ -10,7 +10,8 @@ tpb_full_pipeline(
   num_chains = 4,
   auto_find = FALSE,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 2.5, r_a = 5,
-    s_b = 2.5, r_b = 2.5, scale_a = 1, scale_b = 1, scale_phi = 1),
+    s_b = 2.5, r_b = 2.5, scale_a = 1, scale_b = 1, prior_type_phi = "sqrt_hcauchy",
+    scale_phi = 1),
   num_iter = 1e+05,
   num_warmup = 25000,
   thinning = 1,
@@ -85,7 +86,9 @@ The default is tpb_default_candidates().}
 \item{verbose}{Logical, print model competition progress messages.}
 
 \item{m0}{Optional prior mean effective signal count. With auto_find = FALSE,
-calibrates the half-Cauchy scale for phi once before running the chains.
+calibrates the half-Cauchy scale once before running the chains.
+The default prior is on sqrt(phi); prior_type_phi in hyper_params selects
+the prior on phi itself when set to "hcauchy".
 Use rho * ncol(X) for an expected proportion rho. NULL uses scale_phi
 from hyper_params without calibration.}
 

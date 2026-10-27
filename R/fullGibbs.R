@@ -21,7 +21,10 @@
 #' @param adapt_slice Tune slice widths during burn-in, then freeze them.
 #' @param interweave Add a beta-collapsed shape/scale update in transformed local scales.
 #' @param hyper_params List of hyperparameters (prior_type_a, prior_type_b,
-#'   s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL
+#'   s_a, r_a, s_b, r_b, scale_a, scale_b, prior_type_phi, scale_phi).
+#'   prior_type_phi = "sqrt_hcauchy" (default) puts a half-Cauchy prior on
+#'   sqrt(phi); "hcauchy" retains the earlier prior on phi itself. scale_phi
+#'   is the half-Cauchy scale of the selected quantity. If scale_phi is NULL
 #'   or invalid, scale_phi = 1 is used.
 #' @details The marginal sampler jointly proposes log(a) and log(phi), then
 #'   updates log(b) with a random-walk proposal of standard deviation 0.1.
@@ -42,7 +45,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
                       hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma",
                                           s_a = 2.5, r_a = 5, s_b = 2.5, r_b = 2.5,
                                           scale_a = 1, scale_b = 1,
-                                          scale_phi = 1),
+                                          prior_type_phi = "sqrt_hcauchy", scale_phi = 1),
                       interweave = sampler[1] == "marginal",
                       sampler = c("marginal", "conditional"),
                       interweave_every = 1,
@@ -65,11 +68,13 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     list(prior_type_a = "gamma", prior_type_b = "gamma",
          s_a = 2.5, r_a = 5, s_b = 2.5, r_b = 2.5,
          scale_a = 1, scale_b = 1,
-         scale_phi = 1),
+         prior_type_phi = "sqrt_hcauchy", scale_phi = 1),
     hyper_params
   )
   hyper_params$prior_type_a <- match.arg(hyper_params$prior_type_a, c("gamma", "hcauchy"))
   hyper_params$prior_type_b <- match.arg(hyper_params$prior_type_b, c("gamma", "hcauchy"))
+  hyper_params$prior_type_phi <- match.arg(hyper_params$prior_type_phi,
+                                          c("sqrt_hcauchy", "hcauchy"))
   if (is.null(hyper_params$scale_phi) ||
       !is.finite(hyper_params$scale_phi) ||
       hyper_params$scale_phi <= 0) {
@@ -108,6 +113,7 @@ fullGibbs <- function(X, y, num_output = 10000, num_burnin = 10000, thin = 1,
     hcauchy = abs(rcauchy(1, location = 0, scale = hyper_params$scale_b))
   )
   phi     <- hyper_params$scale_phi
+  if (hyper_params$prior_type_phi == "sqrt_hcauchy") phi <- phi^2
   log_nu <- log(rgamma(p, shape = 1))
   log_lambda <- log(rgamma(p, shape = 1))
   log_var <- log(phi) + log(a) - log(b) + log_nu - log_lambda

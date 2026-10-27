@@ -29,7 +29,7 @@ tpb_log_hyperprior <- function(lp, hp) {
   prior_b <- switch(hp$prior_type_b,
     gamma = (hp$s_b-1)*lp[2] - hp$r_b*exp(lp[2]),
     hcauchy = -tpb_softplus(2*(lp[2]-log(hp$scale_b))))
-  prior_a + prior_b - tpb_softplus(2*(lp[3]-log(hp$scale_phi)))
+  prior_a + prior_b + tpb_log_phi_prior(lp[3], hp$scale_phi, hp$prior_type_phi)
 }
 
 tpb_conditional_locals <- function(log_beta, log_lambda, log_xi, a, b, phi) {

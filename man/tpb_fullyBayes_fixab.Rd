@@ -3,7 +3,7 @@
 \name{tpb_fullyBayes_fixab}
 \alias{tpb_fullyBayes_fixab}
 \title{Fully Bayesian Gibbs Sampler for the TPB Normal Model with Fixed a and b
-Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+Uses sigma^2 ~ InvGamma(1.5, 0.5) and sqrt(phi) ~ half-Cauchy(0, scale_phi),
 matching the main TPB sampler.}
 \usage{
 tpb_fullyBayes_fixab(
@@ -17,7 +17,12 @@ tpb_fullyBayes_fixab(
   diagX = FALSE,
   fix_phi = FALSE,
   phi_val = NULL,
-  scale_phi = 1
+  scale_phi = 1,
+  prior_type_phi = c("sqrt_hcauchy", "hcauchy"),
+  m0 = NULL,
+  calibration_points = 262144,
+  scale_with_sigma = FALSE,
+  store_locals = TRUE
 )
 }
 \arguments{
@@ -29,13 +34,28 @@ tpb_fullyBayes_fixab(
 
 \item{phi_val}{Numeric. The fixed value for phi (if fix_phi = TRUE) or the initial starting value.}
 
-\item{scale_phi}{Half-Cauchy scale for phi (not sqrt(phi)).}
+\item{scale_phi}{Half-Cauchy scale of the quantity selected by prior_type_phi.}
+
+\item{prior_type_phi}{"sqrt_hcauchy" for a prior on sqrt(phi), or "hcauchy"
+for the earlier prior on phi itself.}
+
+\item{m0}{Optional prior mean effective signal count; calibrates scale_phi.}
+
+\item{calibration_points}{Number of Sobol points used for calibration.}
+
+\item{scale_with_sigma}{If TRUE, the coefficient variance is sigmaSq*phi*nu/lambda.
+This supports the horseshoe PV prior: set a = b = 0.5, prior_type_phi =
+"sqrt_hcauchy", and scale_phi = m0/(p-m0)/sqrt(n) for standardized columns.
+Leave m0 = NULL for this PV reference rule; m0 instead invokes the full-prior
+mean calibration. Returned phi is the multiplier before sigmaSq.}
+
+\item{store_locals}{Save nu and lambda draws. FALSE saves only beta and scalars.}
 }
 \value{
 list of posterior samples
 }
 \description{
 Fully Bayesian Gibbs Sampler for the TPB Normal Model with Fixed a and b
-Uses sigma^2 ~ InvGamma(1.5, 0.5) and phi ~ half-Cauchy(0, scale_phi),
+Uses sigma^2 ~ InvGamma(1.5, 0.5) and sqrt(phi) ~ half-Cauchy(0, scale_phi),
 matching the main TPB sampler.
 }

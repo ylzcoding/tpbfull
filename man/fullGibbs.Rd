@@ -17,7 +17,8 @@ fullGibbs(
   max_log_proposal_sd = 0.5,
   max_log_mh_step = 1,
   hyper_params = list(prior_type_a = "gamma", prior_type_b = "gamma", s_a = 2.5, r_a = 5,
-    s_b = 2.5, r_b = 2.5, scale_a = 1, scale_b = 1, scale_phi = 1),
+    s_b = 2.5, r_b = 2.5, scale_a = 1, scale_b = 1, prior_type_phi = "sqrt_hcauchy",
+    scale_phi = 1),
   interweave = sampler[1] == "marginal",
   sampler = c("marginal", "conditional"),
   interweave_every = 1,
@@ -50,7 +51,10 @@ the log scale for adaptive MH covariance regularization.}
 beyond this distance are treated as self-loops.}
 
 \item{hyper_params}{List of hyperparameters (prior_type_a, prior_type_b,
-s_a, r_a, s_b, r_b, scale_a, scale_b, scale_phi). If scale_phi is NULL
+s_a, r_a, s_b, r_b, scale_a, scale_b, prior_type_phi, scale_phi).
+prior_type_phi = "sqrt_hcauchy" (default) puts a half-Cauchy prior on
+sqrt(phi); "hcauchy" retains the earlier prior on phi itself. scale_phi
+is the half-Cauchy scale of the selected quantity. If scale_phi is NULL
 or invalid, scale_phi = 1 is used.}
 
 \item{interweave}{Add a beta-collapsed shape/scale update in transformed local scales.}
